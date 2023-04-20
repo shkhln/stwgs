@@ -1,0 +1,21 @@
+{
+  "file_format_version" : "1.0.0",
+  "layer" : {
+    "name": "VK_LAYER_STWGS_overlay",
+    "type": "GLOBAL",
+    "library_path": "./target/debug/liboverlay.so",
+    "api_version": "1.2",
+    "implementation_version": "1",
+    "description": "",
+    "functions": {
+      "vkGetDeviceProcAddr":   "overlay_vk_get_device_proc_addr",
+      "vkGetInstanceProcAddr": "overlay_vk_get_instance_proc_addr"
+    },
+    "enable_environment": {
+      "ENABLE_STWGS_OVERLAY": "1"
+    },
+    "disable_environment": {
+      "DISABLE_STWGS_OVERLAY": "1"
+    }
+  }
+}

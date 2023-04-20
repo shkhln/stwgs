@@ -1,0 +1,42 @@
+//TODO: nested comments
+
+WHITESPACE  = _{ " " | "\t" | "\r" | "\n" }
+COMMENT     = _{ ("/*" ~ (!"*/" ~ ANY)* ~ "*/" | ("//" | "#") ~ (!"\n" ~ ANY)* ~ "\n") }
+
+ident_char  = _{ ASCII_ALPHA | ASCII_DIGIT | "_" }
+ident       = @{ ASCII_ALPHA ~ ident_char* | "_" ~ ident_char* }
+
+string      = @{ "\"" ~ inner ~ "\"" }
+inner       = @{ (!("\"" | "\\") ~ ANY)* ~ (escape ~ inner)? }
+escape      = @{ "\\" ~ ("\"" | "\\" | "/" | "n") }
+
+number      = @{ ("+" | "-")? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+boolean     =  { "true" | "false" }
+value       = _{ number | boolean | string }
+
+operation   = _{ add | subtract | multiply | divide | dot | bit_or | equal }
+  add       = { "+" }
+  subtract  = { "-" }
+  multiply  = { "*" }
+  divide    = { "/" }
+  dot       = { "." }
+  bit_or    = { "|" }
+  equal     = { "==" }
+
+function    =  { ident ~ "(" ~ argument? ~ ("," ~ argument)* ~ ")" }
+argument    =  { (ident ~ "=")? ~ expression }
+
+term        = _{ layer_expr | if_else | value | function | ident | "(" ~ expression ~ ")" | scope }
+expression  = { term ~ (operation ~ term)* }
+expr_list   = { expression ~ ("," ~ expression)* ~ ","? }
+
+let_st      = { "let" ~ ident ~ ("," ~ ident)* ~ "=" ~ expression }
+def_st      = { "def" ~ ident ~ def_args? ~ "=" ~ expression }
+def_args    = { "(" ~ ident? ~ ("," ~ ident)* ~ ")" }
+statement   = _{ def_st | let_st }
+
+layer_expr  = { "layer" ~ ident ~ ("|" ~ ident)* ~ expression }
+if_else     = { "if" ~ "(" ~ expression ~ ")" ~ expression ~ "else" ~ expression }
+
+scope       = { ( SOI ~ (statement ~ ";")* ~ expr_list ~ EOI |
+                  "{" ~ (statement ~ ";")* ~ expr_list ~ "}" ) }

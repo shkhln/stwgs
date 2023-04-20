@@ -1,0 +1,13 @@
+[package]
+name = "overlay-ipc"
+version = "0.1.0"
+authors = ["Alex S"]
+edition = "2021"
+
+[dependencies]
+#crevice     = "0.11.0"
+futures     = "0.3"
+ipc-channel = "=0.15.0" # 0.16 requires POLLRDHUP
+#mint        = "0.5.9"
+serde       = "1.0.138"
+zbus        = "2.3.2"
