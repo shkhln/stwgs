@@ -1,7 +1,7 @@
 use evdev::uinput::VirtualDeviceBuilder;
 use evdev::{AttributeSet, EventType, InputEvent, Key, RelativeAxisType};
 
-use super::{KeyboardKey, MouseAxis, MouseButton};
+use super::{KeyboardKey, MouseButton};
 
 fn keyboard_key_to_evdev_type(key: KeyboardKey) -> Key {
   match key {
@@ -76,14 +76,6 @@ fn mouse_button_to_evdev_type(button: MouseButton) -> Key {
   }
 }
 
-fn mouse_axis_to_evdev_type(axis: MouseAxis) -> RelativeAxisType {
-  match axis {
-    MouseAxis::X     => RelativeAxisType::REL_X,
-    MouseAxis::Y     => RelativeAxisType::REL_Y,
-    MouseAxis::Wheel => RelativeAxisType::REL_WHEEL
-  }
-}
-
 pub struct UInputDev {
   vdev: evdev::uinput::VirtualDevice
 }
@@ -95,7 +87,6 @@ pub enum KeyEvent {
   Repeat = 2
 }
 
-//TODO: batching?
 impl UInputDev {
 
   pub fn keyboard_key_event(&mut self, key: KeyboardKey, value: KeyEvent) {
@@ -106,12 +97,15 @@ impl UInputDev {
     self.vdev.emit(&[InputEvent::new(EventType::KEY, mouse_button_to_evdev_type(button).code(), value as i32)]).unwrap();
   }
 
-  pub fn relative_axis_event(&mut self, axis: MouseAxis, value: i32) {
-    self.vdev.emit(&[InputEvent::new(EventType::RELATIVE, mouse_axis_to_evdev_type(axis).0, value)]).unwrap();
+  pub fn mouse_xy_event(&mut self, x: i32, y: i32) {
+    self.vdev.emit(&[
+      InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_X.0, x),
+      InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, y)
+    ]).unwrap();
   }
 
-  pub fn syn(&mut self) {
-    // do nothing
+  pub fn mouse_wheel_event(&mut self, value: i32) {
+    self.vdev.emit(&[InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_WHEEL.0, value)]).unwrap();
   }
 }
 

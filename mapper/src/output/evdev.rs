@@ -1,4 +1,4 @@
-use super::{uinput, KeyboardKey, MapperIO, MouseAxis, MouseButton};
+use super::{uinput, KeyboardKey, MapperIO, MouseButton};
 
 pub struct UInputKeyboardAndMouse {
   kb: uinput::UInputDev,
@@ -33,26 +33,15 @@ impl MapperIO for UInputKeyboardAndMouse {
     self.ms.mouse_button_event(btn, uinput::KeyEvent::Up);
   }
 
-  fn mouse_cursor_rel_x(&mut self, value: i32) {
-    if value != 0 {
-      self.ms.relative_axis_event(MouseAxis::X, value);
-    }
-  }
-
-  fn mouse_cursor_rel_y(&mut self, value: i32) {
-    if value != 0 {
-      self.ms.relative_axis_event(MouseAxis::Y, value);
-    }
+  fn mouse_cursor_rel_xy(&mut self, x: i32, y: i32) {
+    self.ms.mouse_xy_event(x, y);
   }
 
   fn mouse_wheel_rel(&mut self, value: i32) {
-    if value != 0 {
-      self.ms.relative_axis_event(MouseAxis::Wheel, value);
-    }
+    self.ms.mouse_wheel_event(value);
   }
 
   fn syn(&mut self) {
-    self.kb.syn();
-    self.ms.syn();
+    // do nothing
   }
 }

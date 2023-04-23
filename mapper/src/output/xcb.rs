@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use super::{KeyboardKey, MapperIO, MouseButton};
 
 fn get_keyboard_key_index(key: KeyboardKey) -> usize {
@@ -143,8 +141,8 @@ fn get_mouse_button_code(btn: MouseButton) -> u8 {
 
 pub struct XcbKeyboardAndMouse {
   connection: xcb::Connection,
-  rel_x:      Cell<i32>,
-  rel_y:      Cell<i32>,
+  rel_x:      i32,
+  rel_y:      i32,
   keycodes:   [u8; 101]
 }
 
@@ -176,7 +174,7 @@ impl XcbKeyboardAndMouse {
       }
     }
 
-    Ok(Self { connection, rel_x: Cell::new(0), rel_y: Cell::new(0), keycodes })
+    Ok(Self { connection, rel_x: 0, rel_y: 0, keycodes })
   }
 }
 
@@ -213,33 +211,27 @@ impl MapperIO for XcbKeyboardAndMouse {
     fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
   }
 
-  fn mouse_cursor_rel_x(&mut self, value: i32) {
-    self.rel_x.set(self.rel_x.get() + value);
-  }
-
-  fn mouse_cursor_rel_y(&mut self, value: i32) {
-    self.rel_y.set(self.rel_y.get() + value);
+  fn mouse_cursor_rel_xy(&mut self, x: i32, y: i32) {
+    self.rel_x += x;
+    self.rel_y += y;
   }
 
   fn mouse_wheel_rel(&mut self, value: i32) {
-    if value != 0 {
-      let code = if value > 0 { 4 } else { 5 };
-      for _ in 0..value.abs() {
-        fake_input(&self.connection, X11_BUTTON_PRESS   as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
-        fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
-      }
+    let code = if value > 0 { 4 } else { 5 };
+    for _ in 0..value.abs() {
+      fake_input(&self.connection, X11_BUTTON_PRESS   as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+      fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
     }
   }
 
   fn syn(&mut self) {
-    let x = self.rel_x.get() as i16;
-    let y = self.rel_y.get() as i16;
+    let x = self.rel_x as i16;
+    let y = self.rel_y as i16;
     if x != 0 || y != 0 {
       fake_input(&self.connection, X11_MOTION as u8, 1, X11_CURRENT_TIME, X11_NONE, x, y, 0);
-      self.rel_x.set(0);
-      self.rel_y.set(0);
+      self.rel_x = 0;
+      self.rel_y = 0;
     }
-
     self.connection.flush();
   }
 }

@@ -90,8 +90,7 @@ pub trait MapperIO {
   fn keyboard_key_up(&mut self, key: KeyboardKey);
   fn mouse_button_down(&mut self, btn: MouseButton);
   fn mouse_button_up(&mut self, btn: MouseButton);
-  fn mouse_cursor_rel_x(&mut self, value: i32);
-  fn mouse_cursor_rel_y(&mut self, value: i32);
+  fn mouse_cursor_rel_xy(&mut self, x: i32, y: i32);
   fn mouse_wheel_rel(&mut self, value: i32);
   fn syn(&mut self);
 }
@@ -103,8 +102,7 @@ impl MapperIO for DummyOutput {
   fn keyboard_key_up(&mut self, _key: KeyboardKey) {}
   fn mouse_button_down(&mut self, _btn: MouseButton) {}
   fn mouse_button_up(&mut self, _btn: MouseButton) {}
-  fn mouse_cursor_rel_x(&mut self, _value: i32) {}
-  fn mouse_cursor_rel_y(&mut self, _value: i32) {}
+  fn mouse_cursor_rel_xy(&mut self, _: i32, _: i32) {}
   fn mouse_wheel_rel(&mut self, _value: i32) {}
   fn syn(&mut self) {}
 }

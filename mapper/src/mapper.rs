@@ -334,7 +334,9 @@ impl<'m> Mapper<'m> {
         match axis {
           MouseAxis::X     => self.rel_mouse_x += value,
           MouseAxis::Y     => self.rel_mouse_y += value,
-          MouseAxis::Wheel => self.output.mouse_wheel_rel(value as i32)
+          MouseAxis::Wheel => if value != 0.0 {
+            self.output.mouse_wheel_rel(value as i32);
+          }
         };
       },
 
@@ -498,12 +500,12 @@ impl<'m> Mapper<'m> {
     }
 
     let x = self.rel_mouse_x.trunc();
-    self.output.mouse_cursor_rel_x(x as i32);
-    self.rel_mouse_x -= x;
-
     let y = self.rel_mouse_y.trunc();
-    self.output.mouse_cursor_rel_y(y as i32);
-    self.rel_mouse_y -= y;
+    if x != 0.0 || y != 0.0 {
+      self.output.mouse_cursor_rel_xy(x as i32, y as i32);
+      self.rel_mouse_x -= x;
+      self.rel_mouse_y -= y;
+    }
 
     self.output.syn();
 
@@ -599,9 +601,8 @@ mod tests {
 
     fn mouse_button_down(&mut self, _btn: MouseButton) {}
     fn mouse_button_up(&mut self, _btn: MouseButton) {}
-    fn mouse_cursor_rel_x(&mut self, _value: i32) {}
-    fn mouse_cursor_rel_y(&mut self, _value: i32) {}
-    fn mouse_wheel_rel(&mut self, _value: i32) {}
+    fn mouse_cursor_rel_xy(&mut self, _: i32, _: i32) {}
+    fn mouse_wheel_rel(&mut self, _: i32) {}
     fn syn(&mut self) {}
   }
 
