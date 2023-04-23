@@ -1,3 +1,7 @@
+use xcb::x::{GetKeyboardMapping, Window};
+use xcb::xtest::FakeInput;
+use xcb::Xid;
+
 use super::{KeyboardKey, MapperIO, MouseButton};
 
 fn get_keyboard_key_index(key: KeyboardKey) -> usize {
@@ -159,7 +163,8 @@ impl XcbKeyboardAndMouse {
     let mut keycodes: [u8; 101] = [0; 101];
 
     for keycode in min_keycode..=max_keycode {
-      if let Ok(reply) = xcb::xproto::get_keyboard_mapping(&connection, keycode, 1).get_reply() {
+      let cookie = connection.send_request(&GetKeyboardMapping { first_keycode: keycode, count: 1 });
+      if let Ok(reply) = connection.wait_for_reply(cookie) {
         for keysym in reply.keysyms() {
           if let Some(key) = keysym_to_keyboard_key(*keysym) {
             let i = get_keyboard_key_index(key);
@@ -185,30 +190,40 @@ use x11::xinput2::{
   XI_KeyRelease    as X11_KEY_RELEASE,
   XI_Motion        as X11_MOTION
 };
-use xcb::base::{CURRENT_TIME as X11_CURRENT_TIME, NONE as X11_NONE};
-use xcb::test::fake_input;
+
+fn fake_input_request(event: i32, code: u8, x: i16, y: i16) -> FakeInput {
+  FakeInput {
+    r#type:   event as u8,
+    detail:   code,
+    time:     0,
+    root:     Window::none(),
+    root_x:   x,
+    root_y:   y,
+    deviceid: 0
+  }
+}
 
 //TODO: poll for errors
 impl MapperIO for XcbKeyboardAndMouse {
 
   fn keyboard_key_down(&mut self, key: KeyboardKey) {
     let keycode = self.keycodes[get_keyboard_key_index(key)];
-    fake_input(&self.connection, X11_KEY_PRESS as u8, keycode, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+    self.connection.send_request(&fake_input_request(X11_KEY_PRESS, keycode, 0, 0));
   }
 
   fn keyboard_key_up(&mut self, key: KeyboardKey) {
     let keycode = self.keycodes[get_keyboard_key_index(key)];
-    fake_input(&self.connection, X11_KEY_RELEASE as u8, keycode, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+    self.connection.send_request(&fake_input_request(X11_KEY_RELEASE, keycode, 0, 0));
   }
 
   fn mouse_button_down(&mut self, btn: MouseButton) {
     let code = get_mouse_button_code(btn);
-    fake_input(&self.connection, X11_BUTTON_PRESS as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+    self.connection.send_request(&fake_input_request(X11_BUTTON_PRESS, code, 0, 0));
   }
 
   fn mouse_button_up(&mut self, btn: MouseButton) {
     let code = get_mouse_button_code(btn);
-    fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+    self.connection.send_request(&fake_input_request(X11_BUTTON_RELEASE, code, 0, 0));
   }
 
   fn mouse_cursor_rel_xy(&mut self, x: i32, y: i32) {
@@ -219,8 +234,8 @@ impl MapperIO for XcbKeyboardAndMouse {
   fn mouse_wheel_rel(&mut self, value: i32) {
     let code = if value > 0 { 4 } else { 5 };
     for _ in 0..value.abs() {
-      fake_input(&self.connection, X11_BUTTON_PRESS   as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
-      fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
+      self.connection.send_request(&fake_input_request(X11_BUTTON_PRESS,   code, 0, 0));
+      self.connection.send_request(&fake_input_request(X11_BUTTON_RELEASE, code, 0, 0));
     }
   }
 
@@ -228,10 +243,10 @@ impl MapperIO for XcbKeyboardAndMouse {
     let x = self.rel_x as i16;
     let y = self.rel_y as i16;
     if x != 0 || y != 0 {
-      fake_input(&self.connection, X11_MOTION as u8, 1, X11_CURRENT_TIME, X11_NONE, x, y, 0);
+      self.connection.send_request(&fake_input_request(X11_MOTION, 1, x, y));
       self.rel_x = 0;
       self.rel_y = 0;
     }
-    self.connection.flush();
+    self.connection.flush().unwrap();
   }
 }
