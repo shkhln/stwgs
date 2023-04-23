@@ -4,71 +4,6 @@ use xcb::Xid;
 
 use super::{KeyboardKey, MapperIO, MouseButton};
 
-fn get_keyboard_key_index(key: KeyboardKey) -> usize {
-  match key {
-    KeyboardKey::A         =>  0,
-    KeyboardKey::B         =>  1,
-    KeyboardKey::C         =>  2,
-    KeyboardKey::D         =>  3,
-    KeyboardKey::E         =>  4,
-    KeyboardKey::F         =>  5,
-    KeyboardKey::G         =>  6,
-    KeyboardKey::H         =>  7,
-    KeyboardKey::I         =>  8,
-    KeyboardKey::J         =>  9,
-    KeyboardKey::K         => 10,
-    KeyboardKey::L         => 11,
-    KeyboardKey::M         => 12,
-    KeyboardKey::N         => 13,
-    KeyboardKey::O         => 14,
-    KeyboardKey::P         => 15,
-    KeyboardKey::Q         => 16,
-    KeyboardKey::R         => 17,
-    KeyboardKey::S         => 18,
-    KeyboardKey::T         => 19,
-    KeyboardKey::U         => 20,
-    KeyboardKey::V         => 21,
-    KeyboardKey::W         => 22,
-    KeyboardKey::X         => 23,
-    KeyboardKey::Y         => 24,
-    KeyboardKey::Z         => 25,
-    KeyboardKey::Esc       => 26,
-    KeyboardKey::Enter     => 27,
-    KeyboardKey::Space     => 28,
-    KeyboardKey::Ctrl      => 29,
-    KeyboardKey::Shift     => 30,
-    KeyboardKey::Tab       => 31,
-    KeyboardKey::Alt       => 32,
-    KeyboardKey::_1        => 33,
-    KeyboardKey::_2        => 34,
-    KeyboardKey::_3        => 35,
-    KeyboardKey::_4        => 36,
-    KeyboardKey::_5        => 37,
-    KeyboardKey::_6        => 38,
-    KeyboardKey::_7        => 39,
-    KeyboardKey::_8        => 40,
-    KeyboardKey::_9        => 41,
-    KeyboardKey::_0        => 42,
-    KeyboardKey::KP1       => 43,
-    KeyboardKey::KP2       => 44,
-    KeyboardKey::KP3       => 45,
-    KeyboardKey::KP4       => 46,
-    KeyboardKey::KP5       => 47,
-    KeyboardKey::KP6       => 48,
-    KeyboardKey::KP7       => 49,
-    KeyboardKey::KP8       => 50,
-    KeyboardKey::KP9       => 51,
-    KeyboardKey::KP0       => 52,
-    KeyboardKey::Up        => 53,
-    KeyboardKey::Left      => 54,
-    KeyboardKey::Down      => 55,
-    KeyboardKey::Right     => 56,
-    KeyboardKey::PageDown  => 57,
-    KeyboardKey::PageUp    => 58,
-    KeyboardKey::Backslash => 59
-  }
-}
-
 fn keysym_to_keyboard_key(keysym: std::os::raw::c_uint) -> Option<KeyboardKey> {
   match keysym {
     x11::keysym::XK_A         => Some(KeyboardKey::A),
@@ -167,9 +102,8 @@ impl XcbKeyboardAndMouse {
       if let Ok(reply) = connection.wait_for_reply(cookie) {
         for keysym in reply.keysyms() {
           if let Some(key) = keysym_to_keyboard_key(*keysym) {
-            let i = get_keyboard_key_index(key);
-            if keycodes[i] == 0 {
-              keycodes[i] = keycode;
+            if keycodes[key as usize] == 0 {
+              keycodes[key as usize] = keycode;
             }
             break;
           }
@@ -207,12 +141,12 @@ fn fake_input_request(event: i32, code: u8, x: i16, y: i16) -> FakeInput {
 impl MapperIO for XcbKeyboardAndMouse {
 
   fn keyboard_key_down(&mut self, key: KeyboardKey) {
-    let keycode = self.keycodes[get_keyboard_key_index(key)];
+    let keycode = self.keycodes[key as usize];
     self.connection.send_request(&fake_input_request(X11_KEY_PRESS, keycode, 0, 0));
   }
 
   fn keyboard_key_up(&mut self, key: KeyboardKey) {
-    let keycode = self.keycodes[get_keyboard_key_index(key)];
+    let keycode = self.keycodes[key as usize];
     self.connection.send_request(&fake_input_request(X11_KEY_RELEASE, keycode, 0, 0));
   }
 
