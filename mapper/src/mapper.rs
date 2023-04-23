@@ -552,10 +552,7 @@ impl<'m> Mapper<'m> {
 
   #[cfg(not(test))]
   pub fn fuzz(&mut self, max_iterations: usize) {
-
-    let seed: &[_] = &[42]; // ?
-    let mut rng: rand::StdRng = rand::SeedableRng::from_seed(seed);
-
+    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_seed([42; 32]);
     for i in 1..max_iterations {
       let state = ControllerState::random(&mut rng);
       self.randomize_probe_values(&mut rng);
