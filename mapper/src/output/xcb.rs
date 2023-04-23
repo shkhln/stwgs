@@ -193,35 +193,35 @@ use xcb::test::fake_input;
 //TODO: poll for errors
 impl MapperIO for XcbKeyboardAndMouse {
 
-  fn keyboard_key_down(&self, key: KeyboardKey) {
+  fn keyboard_key_down(&mut self, key: KeyboardKey) {
     let keycode = self.keycodes[get_keyboard_key_index(key)];
     fake_input(&self.connection, X11_KEY_PRESS as u8, keycode, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
   }
 
-  fn keyboard_key_up(&self, key: KeyboardKey) {
+  fn keyboard_key_up(&mut self, key: KeyboardKey) {
     let keycode = self.keycodes[get_keyboard_key_index(key)];
     fake_input(&self.connection, X11_KEY_RELEASE as u8, keycode, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
   }
 
-  fn mouse_button_down(&self, btn: MouseButton) {
+  fn mouse_button_down(&mut self, btn: MouseButton) {
     let code = get_mouse_button_code(btn);
     fake_input(&self.connection, X11_BUTTON_PRESS as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
   }
 
-  fn mouse_button_up(&self, btn: MouseButton) {
+  fn mouse_button_up(&mut self, btn: MouseButton) {
     let code = get_mouse_button_code(btn);
     fake_input(&self.connection, X11_BUTTON_RELEASE as u8, code, X11_CURRENT_TIME, X11_NONE, 0, 0, 0);
   }
 
-  fn mouse_cursor_rel_x(&self, value: i32) {
+  fn mouse_cursor_rel_x(&mut self, value: i32) {
     self.rel_x.set(self.rel_x.get() + value);
   }
 
-  fn mouse_cursor_rel_y(&self, value: i32) {
+  fn mouse_cursor_rel_y(&mut self, value: i32) {
     self.rel_y.set(self.rel_y.get() + value);
   }
 
-  fn mouse_wheel_rel(&self, value: i32) {
+  fn mouse_wheel_rel(&mut self, value: i32) {
     if value != 0 {
       let code = if value > 0 { 4 } else { 5 };
       for _ in 0..value.abs() {
@@ -231,7 +231,7 @@ impl MapperIO for XcbKeyboardAndMouse {
     }
   }
 
-  fn syn(&self) {
+  fn syn(&mut self) {
     let x = self.rel_x.get() as i16;
     let y = self.rel_y.get() as i16;
     if x != 0 || y != 0 {

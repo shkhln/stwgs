@@ -86,25 +86,25 @@ pub enum KeyboardKey {
 }
 
 pub trait MapperIO {
-  fn keyboard_key_down(&self, key: KeyboardKey);
-  fn keyboard_key_up(&self, key: KeyboardKey);
-  fn mouse_button_down(&self, btn: MouseButton);
-  fn mouse_button_up(&self, btn: MouseButton);
-  fn mouse_cursor_rel_x(&self, value: i32);
-  fn mouse_cursor_rel_y(&self, value: i32);
-  fn mouse_wheel_rel(&self, value: i32);
-  fn syn(&self);
+  fn keyboard_key_down(&mut self, key: KeyboardKey);
+  fn keyboard_key_up(&mut self, key: KeyboardKey);
+  fn mouse_button_down(&mut self, btn: MouseButton);
+  fn mouse_button_up(&mut self, btn: MouseButton);
+  fn mouse_cursor_rel_x(&mut self, value: i32);
+  fn mouse_cursor_rel_y(&mut self, value: i32);
+  fn mouse_wheel_rel(&mut self, value: i32);
+  fn syn(&mut self);
 }
 
 pub struct DummyOutput;
 
 impl MapperIO for DummyOutput {
-  fn keyboard_key_down(&self, _key: KeyboardKey) {}
-  fn keyboard_key_up(&self, _key: KeyboardKey) {}
-  fn mouse_button_down(&self, _btn: MouseButton) {}
-  fn mouse_button_up(&self, _btn: MouseButton) {}
-  fn mouse_cursor_rel_x(&self, _value: i32) {}
-  fn mouse_cursor_rel_y(&self, _value: i32) {}
-  fn mouse_wheel_rel(&self, _value: i32) {}
-  fn syn(&self) {}
+  fn keyboard_key_down(&mut self, _key: KeyboardKey) {}
+  fn keyboard_key_up(&mut self, _key: KeyboardKey) {}
+  fn mouse_button_down(&mut self, _btn: MouseButton) {}
+  fn mouse_button_up(&mut self, _btn: MouseButton) {}
+  fn mouse_cursor_rel_x(&mut self, _value: i32) {}
+  fn mouse_cursor_rel_y(&mut self, _value: i32) {}
+  fn mouse_wheel_rel(&mut self, _value: i32) {}
+  fn syn(&mut self) {}
 }

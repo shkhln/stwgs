@@ -93,7 +93,7 @@ pub struct Mapper<'m> {
 
   controller: Option<&'m std::sync::mpsc::Sender<ControllerCommand>>,
   overlay:    Option<&'m overlay_ipc::CommandSender>,
-  output:     &'m dyn MapperIO,
+  output:     &'m mut dyn MapperIO,
 
   curr_layer_mask: LayerMask,
   next_layer_mask: Option<LayerMask>,
@@ -138,7 +138,7 @@ impl<'m> Mapper<'m> {
   pub fn new(controller: Option<&'m std::sync::mpsc::Sender<ControllerCommand>>,
              overlay:    Option<&'m overlay_ipc::CommandSender>,
              config: Config,
-             output:     &'m dyn MapperIO,
+             output:     &'m mut dyn MapperIO,
              log_level:  u8
   ) -> Self {
 
@@ -583,26 +583,26 @@ mod tests {
 
   impl MapperIO for DummyOutput2 {
 
-    fn keyboard_key_down(&self, key: KeyboardKey) {
+    fn keyboard_key_down(&mut self, key: KeyboardKey) {
       //println!("down {:?}", key);
       let mut keys = self.keys.take();
       keys.push((true, key));
       self.keys.replace(keys);
     }
 
-    fn keyboard_key_up(&self, key: KeyboardKey) {
+    fn keyboard_key_up(&mut self, key: KeyboardKey) {
       //println!("up {:?}", key);
       let mut keys = self.keys.take();
       keys.push((false, key));
       self.keys.replace(keys);
     }
 
-    fn mouse_button_down(&self, _btn: MouseButton) {}
-    fn mouse_button_up(&self, _btn: MouseButton) {}
-    fn mouse_cursor_rel_x(&self, _value: i32) {}
-    fn mouse_cursor_rel_y(&self, _value: i32) {}
-    fn mouse_wheel_rel(&self, _value: i32) {}
-    fn syn(&self) {}
+    fn mouse_button_down(&mut self, _btn: MouseButton) {}
+    fn mouse_button_up(&mut self, _btn: MouseButton) {}
+    fn mouse_cursor_rel_x(&mut self, _value: i32) {}
+    fn mouse_cursor_rel_y(&mut self, _value: i32) {}
+    fn mouse_wheel_rel(&mut self, _value: i32) {}
+    fn syn(&mut self) {}
   }
 
   fn config(pipelines: Vec<(LayerMask, Box<dyn Pipeline<()>>)>) -> Config {
@@ -653,8 +653,8 @@ mod tests {
       (LayerMask(0b11), switch_mode(button_input(Button::X), LayerMask(0b10)))
     ]);
 
-    let     output = DummyOutput2 { keys: Cell::new(vec![]) };
-    let mut mapper = Mapper::new(None, None, config, &output, 0);
+    let mut output = DummyOutput2 { keys: Cell::new(vec![]) };
+    let mut mapper = Mapper::new(None, None, config, &mut output, 0);
     let mut state  = crate::controllers::ControllerState::empty();
 
     state.buttons.a = true;
@@ -678,8 +678,8 @@ mod tests {
       (LayerMask(0b11), switch_mode(button_input(Button::X), LayerMask(0b10)))
     ]);
 
-    let     output = DummyOutput2 { keys: Cell::new(vec![]) };
-    let mut mapper = Mapper::new(None, None, config, &output, 0);
+    let mut output = DummyOutput2 { keys: Cell::new(vec![]) };
+    let mut mapper = Mapper::new(None, None, config, &mut output, 0);
     let mut state  = crate::controllers::ControllerState::empty();
 
     mapper.apply_actions(&state, Timestamp(0));

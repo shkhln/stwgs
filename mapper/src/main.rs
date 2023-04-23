@@ -157,7 +157,7 @@ fn main() {
 
         assert_ne!(available_backends.len(), 0);
 
-        let output: Box<dyn output::MapperIO> = match output.unwrap_or(available_backends[0]) {
+        let mut output: Box<dyn output::MapperIO> = match output.unwrap_or(available_backends[0]) {
           #[cfg(feature = "x11")]
           OutputBackend::X11 => match output::xcb::XcbKeyboardAndMouse::new() {
             Ok(xtest_out) => Box::new(xtest_out),
@@ -283,7 +283,7 @@ fn main() {
             config.pipelines.push((knobs_menu_layer, overlay_menu_command(button_input(Button::DPadRight), OverlayMenuCommand::SelectNextValue)));
           }
 
-          let mut mapper = mapper::Mapper::new(Some(&controller_command_sender), overlay.as_ref(), config, &*output, 1);
+          let mut mapper = mapper::Mapper::new(Some(&controller_command_sender), overlay.as_ref(), config, &mut *output, 1);
 
           match mapper.run(&controller_state_receiver) {
 
@@ -329,10 +329,10 @@ fn main() {
     },
     Some(Command::Test { script }) => {
 
-      let output = output::DummyOutput {};
+      let mut output = output::DummyOutput {};
 
       let config = load_config_from_file(&script, None);
-      let mut mapper = mapper::Mapper::new(None, None, config, &output, 0);
+      let mut mapper = mapper::Mapper::new(None, None, config, &mut output, 0);
 
       let iterations = 1_000_000;
       let start      = std::time::Instant::now();
