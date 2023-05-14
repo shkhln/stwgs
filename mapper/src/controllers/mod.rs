@@ -98,12 +98,12 @@ pub struct ControllerAxes {
   pub lpad_y:  f32,
   pub rpad_x:  f32,
   pub rpad_y:  f32,
-  pub ax:      i16,
-  pub ay:      i16,
-  pub az:      i16,
-  pub pitch:   i16,
-  pub roll:    i16,
-  pub yaw:     i16,
+  pub ax:      f32,
+  pub ay:      f32,
+  pub az:      f32,
+  pub pitch:   f32,
+  pub roll:    f32,
+  pub yaw:     f32,
   pub q0:      i16,
   pub q1:      i16,
   pub q2:      i16,
@@ -159,12 +159,12 @@ impl ControllerState {
         lpad_y:  0.0,
         rpad_x:  0.0,
         rpad_y:  0.0,
-        ax:      0,
-        ay:      0,
-        az:      0,
-        pitch:   0,
-        roll:    0,
-        yaw:     0,
+        ax:      0.0,
+        ay:      0.0,
+        az:      0.0,
+        pitch:   0.0,
+        roll:    0.0,
+        yaw:     0.0,
         q0:      0,
         q1:      0,
         q2:      0,
@@ -216,16 +216,16 @@ impl ControllerState {
       Axis::LPadY    => self.axes.lpad_y,
       Axis::RPadX    => self.axes.rpad_x,
       Axis::RPadY    => self.axes.rpad_y,
-      Axis::AX       => self.axes.ax    as f32,
-      Axis::AY       => self.axes.ay    as f32,
-      Axis::AZ       => self.axes.az    as f32,
-      Axis::Pitch    => self.axes.pitch as f32,
-      Axis::Roll     => self.axes.roll  as f32,
-      Axis::Yaw      => self.axes.yaw   as f32,
-      Axis::Q0       => self.axes.q0    as f32,
-      Axis::Q1       => self.axes.q1    as f32,
-      Axis::Q2       => self.axes.q2    as f32,
-      Axis::Q3       => self.axes.q3    as f32,
+      Axis::AX       => self.axes.ax,
+      Axis::AY       => self.axes.ay,
+      Axis::AZ       => self.axes.az,
+      Axis::Pitch    => self.axes.pitch,
+      Axis::Roll     => self.axes.roll,
+      Axis::Yaw      => self.axes.yaw,
+      Axis::Q0       => self.axes.q0 as f32,
+      Axis::Q1       => self.axes.q1 as f32,
+      Axis::Q2       => self.axes.q2 as f32,
+      Axis::Q3       => self.axes.q3 as f32,
       Axis::AbsPitch => self.axes.a_pitch,
       Axis::AbsRoll  => self.axes.a_roll,
       Axis::AbsYaw   => self.axes.a_yaw
@@ -270,12 +270,12 @@ impl ControllerState {
         lpad_y:  rng.gen_range(-1.0..=1.0),
         rpad_x:  rng.gen_range(-1.0..=1.0),
         rpad_y:  rng.gen_range(-1.0..=1.0),
-        ax:      rng.gen_range(i16::MIN..=i16::MAX),
-        ay:      rng.gen_range(i16::MIN..=i16::MAX),
-        az:      rng.gen_range(i16::MIN..=i16::MAX),
-        pitch:   rng.gen_range(i16::MIN..=i16::MAX),
-        roll:    rng.gen_range(i16::MIN..=i16::MAX),
-        yaw:     rng.gen_range(i16::MIN..=i16::MAX),
+        ax:      rng.gen_range(-1.0..=1.0), // ?
+        ay:      rng.gen_range(-1.0..=1.0), // ?
+        az:      rng.gen_range(-1.0..=1.0), // ?
+        pitch:   rng.gen_range(-1.0..=1.0), // ?
+        roll:    rng.gen_range(-1.0..=1.0), // ?
+        yaw:     rng.gen_range(-1.0..=1.0), // ?
         q0:      rng.gen_range(i16::MIN..=i16::MAX),
         q1:      rng.gen_range(i16::MIN..=i16::MAX),
         q2:      rng.gen_range(i16::MIN..=i16::MAX),
@@ -309,7 +309,7 @@ pub enum ControllerCommand {
 
 pub trait Controller {
   fn name(&self)   -> String;
-  fn path(&self)   -> Option<String>;
+  fn path(&self)   -> String;
   fn serial(&self) -> Option<String>;
   fn run_polling_loop(&self, sender: Sender<ControllerState>, receiver: Option<Receiver<ControllerCommand>>) -> Result<(), String>;
 }
@@ -326,17 +326,17 @@ pub fn find_controller(serial_or_partial_path: Option<String>) -> Result<Option<
   let controllers = available_controllers()?;
 
   if let Some(serial_or_partial_path) = serial_or_partial_path.map(|s| s.to_lowercase()) {
+
     for controller in controllers {
+
       if let Some(serial) = controller.serial() {
         if serial.to_lowercase() == serial_or_partial_path {
           return Ok(Some(controller));
         }
       }
 
-      if let Some(path) = controller.path() {
-        if path.to_lowercase().contains(&serial_or_partial_path) {
-          return Ok(Some(controller));
-        }
+      if controller.path().to_lowercase().contains(&serial_or_partial_path) {
+        return Ok(Some(controller));
       }
 
       if controller.name().to_lowercase().contains(&serial_or_partial_path) {

@@ -130,8 +130,8 @@ impl Controller for SteamController {
     "Steam Controller".to_string()
   }
 
-  fn path(&self) -> Option<String> {
-    Some(format!("//steam/usb/{}:{}", self.bus_number, self.bus_address))
+  fn path(&self) -> String {
+    format!("//steam/usb/{}:{}", self.bus_number, self.bus_address)
   }
 
   fn serial(&self) -> Option<String> {
@@ -226,13 +226,14 @@ impl Controller for SteamController {
         state.axes.rpad_x = rpad_x * rpad_rotation_angle_cos - rpad_y * rpad_rotation_angle_sin;
         state.axes.rpad_y = rpad_x * rpad_rotation_angle_sin + rpad_y * rpad_rotation_angle_cos;
 
-        state.axes.ax     = (buffer[29] as i16) << 8 | buffer[28] as i16;
-        state.axes.ay     = (buffer[31] as i16) << 8 | buffer[30] as i16;
-        state.axes.az     = (buffer[33] as i16) << 8 | buffer[32] as i16;
+        //TODO: normalize this
+        state.axes.ax     = ((buffer[29] as i16) << 8 | buffer[28] as i16) as f32; // left <-> right
+        state.axes.ay     = ((buffer[31] as i16) << 8 | buffer[30] as i16) as f32; // back <-> forward
+        state.axes.az     = ((buffer[33] as i16) << 8 | buffer[32] as i16) as f32; // down <-> up
 
-        state.axes.pitch  = (buffer[35] as i16) << 8 | buffer[34] as i16;
-        state.axes.roll   = (buffer[37] as i16) << 8 | buffer[36] as i16;
-        state.axes.yaw    = (buffer[39] as i16) << 8 | buffer[38] as i16;
+        state.axes.pitch  = ((buffer[35] as i16) << 8 | buffer[34] as i16) as f32;
+        state.axes.roll   = ((buffer[37] as i16) << 8 | buffer[36] as i16) as f32;
+        state.axes.yaw    = ((buffer[39] as i16) << 8 | buffer[38] as i16) as f32;
 
         state.axes.q0     = (buffer[41] as i16) << 8 | buffer[40] as i16;
         state.axes.q1     = (buffer[43] as i16) << 8 | buffer[42] as i16;

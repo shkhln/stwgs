@@ -12,12 +12,17 @@ libusb       = "0.3"
 pest         = "2.5.7"
 pest_derive  = "2.5.7"
 rand         = "0.8.5"
-sdl2         = { git = "https://github.com/Rust-SDL2/rust-sdl2.git", rev = "550f3f8f62c8c7c8ac65db30efabec6d121a36f4", optional = true }
 serde_json   = "1.0.96"
 strum        = "0.24.1"
 strum_macros = "0.24.1"
 x11          = { version = "2.21.0", optional = true }
 xcb          = { version = "1.2.0", features = ["xtest"], optional = true }
+
+[dependencies.sdl2]
+git      = "https://github.com/Rust-SDL2/rust-sdl2.git"
+rev      = "2848a5443140e3f412a855e8b78e20f8e7fa2d00"
+optional = true
+features = ["hidapi"]
 
 [dependencies.overlay-ipc]
 package = "overlay-ipc"

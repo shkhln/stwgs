@@ -463,10 +463,10 @@ fn main() {
         if !controllers.is_empty() {
           println!("Found: ");
           for controller in controllers {
-            println!("  {}{}{}",
+            println!("  {}{} @ {}",
               controller.name(),
               controller.serial().map(|p| format!(" [{}]", p)).unwrap_or_else(|| "".to_string()),
-              controller.path()  .map(|p| format!(" @ {}", p)).unwrap_or_else(|| "".to_string()));
+              controller.path());
           }
         } else {
           eprintln!("No controllers found.");
