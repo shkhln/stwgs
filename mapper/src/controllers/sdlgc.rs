@@ -209,9 +209,9 @@ impl Controller for SDL2Controller {
             if which == instance {
               match sensor {
                 sdl2::sensor::SensorType::Accelerometer => {
-                  state.axes.ax = data[0]; // left <-> right
-                  state.axes.ay = data[1]; // down <-> up
-                  state.axes.az = data[2]; // back <-> forward
+                  state.axes.ax =  data[0]; // left    --> right
+                  state.axes.ay = -data[2]; // handles <-- triggers
+                  state.axes.az =  data[1]; // back    --> face
                 },
                 sdl2::sensor::SensorType::Gyroscope => {
                   //eprintln!("gyro: {:?}", data);

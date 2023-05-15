@@ -156,8 +156,10 @@ impl Controller for SteamController {
     let mut buffer = [0_u8; 64];
     let mut state  = ControllerState::empty();
 
-    let  pad_scale_factor = 1f32 / i16::MAX as f32;
-    let trig_scale_factor = 1f32 /  u8::MAX as f32;
+    let accel_scale_factor = 1f32 / 32768.0 * 2.0 * 9.80665;
+    let  gyro_scale_factor = 1f32 / 32768.0 * (2000.0 * std::f32::consts::PI / 180.0);
+    let   pad_scale_factor = 1f32 / 32768.0;
+    let  trig_scale_factor = 1f32 / u8::MAX as f32;
 
     let lpad_rotation_angle     = -std::f32::consts::PI / 180.0 * 15.0;
     let rpad_rotation_angle     =  std::f32::consts::PI / 180.0 * 15.0;
@@ -226,14 +228,13 @@ impl Controller for SteamController {
         state.axes.rpad_x = rpad_x * rpad_rotation_angle_cos - rpad_y * rpad_rotation_angle_sin;
         state.axes.rpad_y = rpad_x * rpad_rotation_angle_sin + rpad_y * rpad_rotation_angle_cos;
 
-        //TODO: normalize this
-        state.axes.ax     = ((buffer[29] as i16) << 8 | buffer[28] as i16) as f32; // left <-> right
-        state.axes.ay     = ((buffer[31] as i16) << 8 | buffer[30] as i16) as f32; // back <-> forward
-        state.axes.az     = ((buffer[33] as i16) << 8 | buffer[32] as i16) as f32; // down <-> up
+        state.axes.ax     = ((buffer[29] as i16) << 8 | buffer[28] as i16) as f32 * accel_scale_factor; // left    --> right
+        state.axes.ay     = ((buffer[31] as i16) << 8 | buffer[30] as i16) as f32 * accel_scale_factor; // handles --> triggers
+        state.axes.az     = ((buffer[33] as i16) << 8 | buffer[32] as i16) as f32 * accel_scale_factor; // back    --> face
 
-        state.axes.pitch  = ((buffer[35] as i16) << 8 | buffer[34] as i16) as f32;
-        state.axes.roll   = ((buffer[37] as i16) << 8 | buffer[36] as i16) as f32;
-        state.axes.yaw    = ((buffer[39] as i16) << 8 | buffer[38] as i16) as f32;
+        state.axes.pitch  = ((buffer[35] as i16) << 8 | buffer[34] as i16) as f32 * gyro_scale_factor;
+        state.axes.roll   = ((buffer[37] as i16) << 8 | buffer[36] as i16) as f32 * gyro_scale_factor;
+        state.axes.yaw    = ((buffer[39] as i16) << 8 | buffer[38] as i16) as f32 * gyro_scale_factor;
 
         state.axes.q0     = (buffer[41] as i16) << 8 | buffer[40] as i16;
         state.axes.q1     = (buffer[43] as i16) << 8 | buffer[42] as i16;
@@ -241,12 +242,10 @@ impl Controller for SteamController {
         state.axes.q3     = (buffer[47] as i16) << 8 | buffer[46] as i16;
 
         {
-          const LENGTH: f32 = i16::MAX as f32;
-
-          let qx = state.axes.q1 as f32 / LENGTH;
-          let qy = state.axes.q2 as f32 / LENGTH;
-          let qz = state.axes.q3 as f32 / LENGTH;
-          let qw = state.axes.q0 as f32 / LENGTH;
+          let qx = state.axes.q1 as f32 / 32768.0;
+          let qy = state.axes.q2 as f32 / 32768.0;
+          let qz = state.axes.q3 as f32 / 32768.0;
+          let qw = state.axes.q0 as f32 / 32768.0;
 
           let qxx = qx.powi(2);
           let qyy = qy.powi(2);
