@@ -8,134 +8,179 @@ use crate::controllers::*;
 struct SteamController {
   bus_number:  u8,
   bus_address: u8,
-  serial:      String
+  interface:   u8,
+  endpoint:    u8,
+  kind:        ControllerType,
+  serial:      Option<String>
 }
 
 fn libusb_err_to_string(err: libusb::Error) -> String {
   format!("{}", err)
 }
 
-fn is_steam_controller(device: &libusb::Device) -> Result<bool, String> {
-  let desc    = device.device_descriptor().map_err(libusb_err_to_string)?;
-  let vendor  = desc.vendor_id();
-  let product = desc.product_id();
-  Ok(vendor == 0x28de && (product == 0x1102 /* wired */ || product == 0x1142 /* wireless */))
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum ControllerType {
+  Wired,
+  Wireless
+}
+
+fn get_controller_type(device: &libusb::Device) -> Result<Option<ControllerType>, String> {
+  let desc = device.device_descriptor().map_err(libusb_err_to_string)?;
+  match (desc.vendor_id(), desc.product_id()) {
+    (0x28de, 0x1102) => Ok(Some(ControllerType::Wired)),
+    (0x28de, 0x1142) => Ok(Some(ControllerType::Wireless)),
+    _ => Ok(None)
+  }
+}
+
+fn is_controller(device: &libusb::Device) -> bool {
+  matches!(get_controller_type(device), Ok(Some(_)))
 }
 
 pub fn available_controllers() -> Result<Vec<Box<dyn Controller>>, String> {
-  let mut controllers: Vec<Box<dyn Controller>> = vec![];
+  let mut controllers: Vec<SteamController> = vec![];
 
   let context = libusb::Context::new().map_err(libusb_err_to_string)?;
   let devices = context.devices().map_err(libusb_err_to_string)?;
 
   for device in devices.iter() {
-    if is_steam_controller(&device)? {
-      let handle = device.open().map_err(libusb_err_to_string)?;
-      let serial = get_serial_number(&handle)?;
-      controllers.push(Box::new(SteamController { bus_number: device.bus_number(), bus_address: device.address(), serial }));
+
+    if let Some(controller_type) = get_controller_type(&device)? {
+
+      let mut endpoints = 0;
+
+      let config_desc = device.active_config_descriptor().map_err(libusb_err_to_string)?;
+      for interface in config_desc.interfaces() {
+        for interface_desc in interface.descriptors() {
+
+          endpoints += interface_desc.num_endpoints();
+
+          if interface_desc.class_code() == 3 && interface_desc.sub_class_code() == 0 && interface_desc.protocol_code() == 0 {
+
+            let serial = if controller_type == ControllerType::Wired {
+              let handle = device.open().map_err(libusb_err_to_string)?;
+              get_serial_number(&handle, interface_desc.interface_number() as u16)?
+            } else {
+              None
+            };
+
+            controllers.push(SteamController {
+              bus_number:  device.bus_number(),
+              bus_address: device.address(),
+              interface:   interface_desc.interface_number(),
+              endpoint:    endpoints,
+              kind:        controller_type,
+              serial
+            });
+          }
+        }
+      }
+
     }
   }
 
-  Ok(controllers)
+  controllers.sort_by_key(|controller| controller.kind);
+
+  Ok(controllers.into_iter().map(|controller| Box::new(controller) as Box<dyn Controller>).collect())
 }
 
-//TODO: verify commands for enabling/disabling gyro
-const ENABLE_GYRO: [u8; 32] = [
-  0x87,
-  0x15,
-
-  0x32,
-  0x84,
-  0x03, // timeout
-
-  0x18,
-  0x00,
-  0x00,
-
-  0x31,
-  0x02,
-  0x00,
-
-  0x08,
-  0x07,
-  0x00,
-
-  0x07,
-  0x07,
-  0x00,
-  0x30,
-
-  0x14, //0x00,
-
-  0x00,
-  0x2e, //0x2f,
-
-  0x01,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00,
-  0x00
-];
-
-fn disable_lizard_mode(handle: &libusb::DeviceHandle) -> Result<(), String> {
+fn disable_lizard_mode(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
   let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
-  let transferred  = handle.write_control(request_type, 0x09, 0x0300, 2, &[0x81], Duration::new(0, 0)).map_err(libusb_err_to_string)?;
+  let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0x81], Duration::new(0, 0)).map_err(libusb_err_to_string)?;
+  assert_eq!(transferred, 1);
+  let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+  let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0x88], Duration::new(0, 0)).map_err(libusb_err_to_string)?;
   assert_eq!(transferred, 1);
   Ok(())
 }
 
-fn get_serial_number(handle: &libusb::DeviceHandle) -> Result<String, String> {
+/*fn enable_lizard_mode(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
+
+  let transferred = handle.write_control(0x21, 0x09, 0x0300, index, &[0x85], Duration::new(0, 0)).unwrap();
+  assert_eq!(transferred, 1);
+
+  let transferred = handle.write_control(0x21, 0x09, 0x0300, index, &[0x8e], Duration::new(0, 0)).unwrap();
+  assert_eq!(transferred, 1);
+
+  Ok(())
+}*/
+
+fn get_serial_number(handle: &libusb::DeviceHandle, index: u16) -> Result<Option<String>, String> {
   let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
-  let transferred  = handle.write_control(request_type, 0x09, 0x0300, 2, &[0xae, 0x15, 0x01], Duration::new(0, 0))
+  let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0xae, 0x1, 0x01], Duration::new(0, 0))
     .map_err(libusb_err_to_string)?;
   assert_eq!(transferred, 3);
 
   let mut buffer = [0_u8; 64];
 
   let request_type = libusb::request_type(Direction::In, RequestType::Class, Recipient::Interface);
-  let transferred  = handle.read_control(request_type, 0x01, 0x0300, 2, &mut buffer, Duration::new(0, 0))
+  let transferred  = handle.read_control(request_type, 0x01, 0x0300, index, &mut buffer, Duration::new(0, 0))
     .map_err(libusb_err_to_string)?;
   assert_eq!(transferred, buffer.len());
 
-  Ok(String::from_utf8_lossy(&buffer[3..=12]).to_string())
+  if buffer[0] != 0xae {
+    return Err("unexpected packet type".to_string());
+  }
+
+  if buffer[1] == 0 {
+    return Ok(None)
+  }
+
+  let payload = &buffer[3..=(3 + buffer[1] as usize)];
+  if let Some(i) = payload.iter().position(|&char| char == 0) {
+    Ok(Some(String::from_utf8_lossy(&payload[..i]).to_string()))
+  } else {
+    Err("malformed serial".to_string())
+  }
 }
 
-/*fn enable_lizard_mode(handle: &libusb::DeviceHandle) {
+//TODO: what's the default inactivity timeout setting?
+const DISABLE_MOUSE_SMOOTH:      [u8; 3] = [0x18, 0x00, 0x00];
+const ENABLE_GYRO:               [u8; 3] = [0x30, 0x18, 0x00];
+const SET_WIRELESS_PACKET_VER_2: [u8; 3] = [0x31, 0x02, 0x00];
+const UNSET_LPAD_MODE:           [u8; 3] = [0x07, 0x07, 0x00];
+const UNSET_RPAD_MODE:           [u8; 3] = [0x08, 0x07, 0x00];
 
-  let transferred = handle.write_control(0x21, 0x09, 0x0300, 2, &[0x85], Duration::new(0, 0)).unwrap();
-  assert_eq!(transferred, 1);
-
-  let transferred = handle.write_control(0x21, 0x09, 0x0300, 2, &[0x8e], Duration::new(0, 0)).unwrap();
-  assert_eq!(transferred, 1);
-
-  // ???
-}*/
-
-fn enable_gyro(handle: &libusb::DeviceHandle) -> Result<(), String> {
+fn update_settings(handle: &libusb::DeviceHandle, index: u16, settings: &[[u8; 3]]) -> Result<(), String> {
+  let mut buffer = [0_u8; 64];
+  assert!(settings.len() <= (buffer.len() - 2) / 3);
+  buffer[0] = 0x87;
+  buffer[1] = settings.len() as u8 * 3;
+  for (i, settings) in settings.iter().enumerate() {
+    buffer[2 + i * 3]     = settings[0];
+    buffer[2 + i * 3 + 1] = settings[1];
+    buffer[2 + i * 3 + 2] = settings[2];
+  }
   let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
-  let transferred  = handle.write_control(request_type, 0x09, 0x0300, 2, &ENABLE_GYRO, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
-  assert_eq!(transferred, ENABLE_GYRO.len());
+  let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &buffer, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
+  assert_eq!(transferred, buffer.len());
+  Ok(())
+}
+
+fn prepare_controller(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
+  disable_lizard_mode(handle, index)?;
+  update_settings(handle, index, &[
+    SET_WIRELESS_PACKET_VER_2,
+    UNSET_LPAD_MODE,
+    UNSET_RPAD_MODE,
+    DISABLE_MOUSE_SMOOTH,
+    ENABLE_GYRO
+  ])?;
   Ok(())
 }
 
 impl Controller for SteamController {
 
   fn name(&self) -> String {
-    "Steam Controller".to_string()
+    format!("{} Steam Controller", if self.kind == ControllerType::Wired { "Wired" } else { "Wireless" })
   }
 
   fn path(&self) -> String {
-    format!("//steam/usb/{}:{}", self.bus_number, self.bus_address)
+    format!("//steam/usb/{}:{}/{}", self.bus_number, self.bus_address, self.endpoint)
   }
 
   fn serial(&self) -> Option<String> {
-    Some(self.serial.clone())
+    self.serial.clone()
   }
 
   fn run_polling_loop(&self, sender: Sender<ControllerState>, receiver: Option<Receiver<ControllerCommand>>) -> Result<(), String> {
@@ -144,14 +189,16 @@ impl Controller for SteamController {
 
     let device = devices
       .iter()
-      .find(|d| d.bus_number() == self.bus_number && d.address() == self.bus_address && is_steam_controller(d).is_ok())
+      .find(|d| d.bus_number() == self.bus_number && d.address() == self.bus_address && is_controller(d))
       .ok_or("No controller found.")?;
 
-    let handle = device.open().map_err(libusb_err_to_string)?;
-    assert_eq!(get_serial_number(&handle)?, self.serial);
+    let mut handle = device.open().map_err(libusb_err_to_string)?;
+    handle.claim_interface(self.interface).map_err(libusb_err_to_string)?;
 
-    disable_lizard_mode(&handle)?;
-    enable_gyro(&handle)?;
+    if self.kind == ControllerType::Wired {
+      assert_eq!(get_serial_number(&handle, self.interface as u16)?, self.serial);
+      prepare_controller(&handle, self.interface as u16)?;
+    }
 
     let mut buffer = [0_u8; 64];
     let mut state  = ControllerState::empty();
@@ -169,10 +216,10 @@ impl Controller for SteamController {
     let rpad_rotation_angle_sin = rpad_rotation_angle.sin();
 
     loop {
-      let transferred = handle.read_interrupt(0x80 | 0x03, &mut buffer, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
+      let transferred = handle.read_interrupt(0x80 | self.endpoint, &mut buffer, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
       assert_eq!(transferred, buffer.len());
 
-      if buffer[2] == 0x01 && buffer[3] == 0x3c /* as opposed to 0x0b04 */ {
+      if buffer[2] == 0x01 /* state */ && buffer[3] == 0x3c {
 
         let buttons1 = buffer[ 8];
         let buttons2 = buffer[ 9];
@@ -264,6 +311,14 @@ impl Controller for SteamController {
         sender.send(state).map_err(|e| format!("{}", e))?;
       } else {
         sender.send(state).map_err(|e| format!("{}", e))?; // repeat prev state
+      }
+
+      if buffer[2] == 0x03 /* wireless packet */ && buffer[4] == 0x02 /* connected */ {
+        prepare_controller(&handle, self.interface as u16)?;
+      }
+
+      if buffer[2] == 0x04 /* status */ {
+        // ?
       }
 
       if let Some(receiver) = &receiver {
