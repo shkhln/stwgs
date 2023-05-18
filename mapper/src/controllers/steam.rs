@@ -15,7 +15,7 @@ struct SteamController {
 }
 
 fn libusb_err_to_string(err: libusb::Error) -> String {
-  format!("{}", err)
+  err.to_string()
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -44,16 +44,13 @@ pub fn available_controllers() -> Result<Vec<Box<dyn Controller>>, String> {
   let devices = context.devices().map_err(libusb_err_to_string)?;
 
   for device in devices.iter() {
-
     if let Some(controller_type) = get_controller_type(&device)? {
-
-      let mut endpoints = 0;
 
       let config_desc = device.active_config_descriptor().map_err(libusb_err_to_string)?;
       for interface in config_desc.interfaces() {
         for interface_desc in interface.descriptors() {
 
-          endpoints += interface_desc.num_endpoints();
+          assert_eq!(interface_desc.num_endpoints(), 1);
 
           if interface_desc.class_code() == 3 && interface_desc.sub_class_code() == 0 && interface_desc.protocol_code() == 0 {
 
@@ -68,7 +65,7 @@ pub fn available_controllers() -> Result<Vec<Box<dyn Controller>>, String> {
               bus_number:  device.bus_number(),
               bus_address: device.address(),
               interface:   interface_desc.interface_number(),
-              endpoint:    endpoints,
+              endpoint:    interface_desc.interface_number() + 1,
               kind:        controller_type,
               serial
             });
@@ -229,7 +226,7 @@ impl Controller for SteamController {
         state.buttons.rpad_touch = (buttons3 & 1 << 4) != 0;
         state.buttons.lpad_touch = (buttons3 & 1 << 3) != 0 || (buttons3 & 1 << 7) != 0;
         state.buttons.rpad_press = (buttons3 & 1 << 2) != 0;
-        state.buttons.lpad_press = (buttons3 & 1 << 1) != 0 && state.buttons.lpad_touch;
+        state.buttons.lpad_press = (buttons3 & 1 << 1) != 0;
         state.buttons.rgrip      = (buttons3 & 1 << 0) != 0;
         state.buttons.lgrip      = (buttons2 & 1 << 7) != 0;
         state.buttons.start      = (buttons2 & 1 << 6) != 0;
@@ -254,19 +251,22 @@ impl Controller for SteamController {
         if (buttons3 & 1 << 3) == 0 {
           state.axes.ljoy_x = ((buffer[17] as i16) << 8 | buffer[16] as i16) as f32 * pad_scale_factor;
           state.axes.ljoy_y = ((buffer[19] as i16) << 8 | buffer[18] as i16) as f32 * pad_scale_factor;
-        }
 
-        if state.buttons.lpad_touch {
-
-          let lpad_x = ((buffer[59] as i16) << 8 | buffer[58] as i16) as f32 * pad_scale_factor;
-          let lpad_y = ((buffer[61] as i16) << 8 | buffer[60] as i16) as f32 * pad_scale_factor;
+          if (buttons3 & 1 << 7) == 0 {
+            state.axes.lpad_x = 0.0;
+            state.axes.lpad_y = 0.0;
+          }
+        } else {
+          let lpad_x = ((buffer[17] as i16) << 8 | buffer[16] as i16) as f32 * pad_scale_factor;
+          let lpad_y = ((buffer[19] as i16) << 8 | buffer[18] as i16) as f32 * pad_scale_factor;
 
           state.axes.lpad_x = lpad_x * lpad_rotation_angle_cos - lpad_y * lpad_rotation_angle_sin;
           state.axes.lpad_y = lpad_x * lpad_rotation_angle_sin + lpad_y * lpad_rotation_angle_cos;
 
-        } else {
-          state.axes.lpad_x = 0.0;
-          state.axes.lpad_y = 0.0;
+          if (buttons3 & 1 << 7) == 0 {
+            state.axes.ljoy_x = 0.0;
+            state.axes.ljoy_y = 0.0;
+          }
         }
 
         let rpad_x = ((buffer[21] as i16) << 8 | buffer[20] as i16) as f32 * pad_scale_factor;
@@ -288,29 +288,27 @@ impl Controller for SteamController {
         state.axes.q2     = (buffer[45] as i16) << 8 | buffer[44] as i16;
         state.axes.q3     = (buffer[47] as i16) << 8 | buffer[46] as i16;
 
-        {
-          let qx = state.axes.q1 as f32 / 32768.0;
-          let qy = state.axes.q2 as f32 / 32768.0;
-          let qz = state.axes.q3 as f32 / 32768.0;
-          let qw = state.axes.q0 as f32 / 32768.0;
+        let qx = state.axes.q1 as f32 / 32768.0;
+        let qy = state.axes.q2 as f32 / 32768.0;
+        let qz = state.axes.q3 as f32 / 32768.0;
+        let qw = state.axes.q0 as f32 / 32768.0;
 
-          let qxx = qx.powi(2);
-          let qyy = qy.powi(2);
-          let qzz = qz.powi(2);
-          let qww = qw.powi(2);
+        let qxx = qx.powi(2);
+        let qyy = qy.powi(2);
+        let qzz = qz.powi(2);
+        let qww = qw.powi(2);
 
-          let abs_yaw   = (2.0 * (qw * qz - qx * qy)).atan2(qww - qxx + qyy - qzz);
-          let abs_pitch = (2.0 * (qy * qz + qw * qx)).asin();
-          let abs_roll  = (2.0 * (qw * qy - qx * qz)).atan2(qww - qxx - qyy + qzz);
+        let abs_yaw   = (2.0 * (qw * qz - qx * qy)).atan2(qww - qxx + qyy - qzz);
+        let abs_pitch = (2.0 * (qy * qz + qw * qx)).asin();
+        let abs_roll  = (2.0 * (qw * qy - qx * qz)).atan2(qww - qxx - qyy + qzz);
 
-          state.axes.a_pitch = abs_pitch;
-          state.axes.a_roll  = abs_roll;
-          state.axes.a_yaw   = abs_yaw;
-        }
+        state.axes.a_pitch = abs_pitch;
+        state.axes.a_roll  = abs_roll;
+        state.axes.a_yaw   = abs_yaw;
 
-        sender.send(state).map_err(|e| format!("{}", e))?;
+        sender.send(state).map_err(|e| e.to_string())?;
       } else {
-        sender.send(state).map_err(|e| format!("{}", e))?; // repeat prev state
+        sender.send(state).map_err(|e| e.to_string())?; // repeat prev state
       }
 
       if buffer[2] == 0x03 /* wireless packet */ && buffer[4] == 0x02 /* connected */ {
