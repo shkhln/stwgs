@@ -32,9 +32,11 @@ enum OutputBackend {
 
 #[derive(Subcommand)]
 enum Command {
+  /// perform sanity check
   Check {
     script: String
   },
+  /// run config
   Load {
     script:     String,
     knobs:      Option<String>,
@@ -43,16 +45,20 @@ enum Command {
     #[arg(short, long)]
     output:     Option<OutputBackend>
   },
+  /// run config with dummy input
   Test {
     script: String
   },
+  /// export config into DOT graph
   Dot {
     script: String
   },
+  /// list config parameters
   Knobs {
     script: String,
     knobs:  Option<String>
   },
+  /// list connected controllers
   List {
     #[arg(short, long)]
     controllers: Option<bool>,
@@ -75,6 +81,7 @@ fn main() {
   }
 
   fn load_config_from_file(path: &str, knob_values: Option<HashMap<String, config::Value>>) -> config::Config {
+    //TODO: check if path exists
     load_config(&std::fs::read_to_string(path).unwrap(), knob_values)
   }
 
