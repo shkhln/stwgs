@@ -223,7 +223,7 @@ fn main() {
 
               let mut bstate = to_button_state();
 
-              let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+              let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
                 if bstate(pressed) == ButtonState::Pressed {
                   actions.push(Action::ToggleOverlayUI);
                 }
@@ -238,7 +238,7 @@ fn main() {
 
               let mut bstate = to_button_state();
 
-              let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+              let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
                 if bstate(pressed) == ButtonState::Pressed {
                   eprintln!("command: {:?}", command);
                   actions.push(Action::SendOverlayMenuCommand(command));

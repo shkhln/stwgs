@@ -4,7 +4,7 @@ pub fn deadzone(pipeline: PipelineRef<f32>, level: f32) -> PipelineRef<f32> {
 
   assert!(level > 0.0);
 
-  let fun = Box::new(move |value: f32, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |value: f32, _, _, _: &mut Vec<Action>| {
     if value.abs() > level {
       if value > 0.0 { value - level } else { value + level }
     } else {
@@ -19,7 +19,7 @@ pub fn cartesian_deadzone(pipeline: PipelineRef<(f32, f32)>, level: f32) -> Pipe
 
   assert!(level > 0.0);
 
-  let fun = Box::new(move |(x, y): (f32, f32), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y): (f32, f32), _, _, _: &mut Vec<Action>| {
 
     let distance_from_center = (x.powi(2) + y.powi(2)).sqrt();
     let effective_distance   = distance_from_center - level;

@@ -12,7 +12,7 @@ pub fn pulse(pipeline: PipelineRef<bool>, frequency: f32, width: f32) -> Pipelin
   let mut last_flip = None;
   let mut value     = false;
 
-  let fun = Box::new(move |b, now, _: &mut Vec<Action>| {
+  let fun = Box::new(move |b, now, _, _: &mut Vec<Action>| {
 
     match bstate(b) {
       ButtonState::Pressed => {

@@ -2,7 +2,7 @@ use super::*;
 
 pub fn rotate(field: PipelineRef<(f32, f32)>, angle: f32) -> PipelineRef<(f32, f32)> {
 
-  let fun = Box::new(move |(x, y), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y), _, _, _: &mut Vec<Action>| {
     let cs = angle.cos();
     let sn = angle.sin();
     (x * cs - y * sn, x * sn + y * cs)
@@ -14,7 +14,7 @@ pub fn rotate(field: PipelineRef<(f32, f32)>, angle: f32) -> PipelineRef<(f32, f
 
 pub fn rotate_by_axis(field: PipelineRef<(f32, f32)>, angle: PipelineRef<f32>) -> PipelineRef<(f32, f32)> {
 
-  let fun = Box::new(move |(x, y), angle: f32, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y), angle: f32, _, _, _: &mut Vec<Action>| {
     let cs = angle.cos();
     let sn = angle.sin();
     (x * cs - y * sn, x * sn + y * cs)

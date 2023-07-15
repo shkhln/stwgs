@@ -7,7 +7,7 @@ pub fn twitch_joymouse(joystick: PipelineRef<(f32, f32)>) -> PipelineRef<(f32, f
   let mut prev_dfc = 0.0;
   let mut speed    = 0.0;
 
-  let fun = Box::new(move |(x, y): (f32, f32), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y): (f32, f32), _, _, _: &mut Vec<Action>| {
 
     let distance_from_center = (x.powi(2) + y.powi(2)).sqrt();
 

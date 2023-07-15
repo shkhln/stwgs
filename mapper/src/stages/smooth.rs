@@ -5,7 +5,7 @@ pub fn smooth(pipeline: PipelineRef<f32>, factor: f32) -> PipelineRef<f32> {
 
   let mut smoothed_value = 0.0;
 
-  let fun = Box::new(move |value, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |value, _, _, _: &mut Vec<Action>| {
     smoothed_value += (value - smoothed_value) / factor;
     smoothed_value
   });

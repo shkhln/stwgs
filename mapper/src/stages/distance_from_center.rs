@@ -2,7 +2,7 @@ use super::*;
 
 pub fn distance_from_center(pipeline: PipelineRef<(f32, f32)>) -> PipelineRef<f32> {
 
-  let fun = Box::new(move |(x, y): (f32, f32), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y): (f32, f32), _, _, _: &mut Vec<Action>| {
     (x.powi(2) + y.powi(2)).sqrt()
   });
 

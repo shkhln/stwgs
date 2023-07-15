@@ -146,13 +146,13 @@ pub struct FnStage<T: 'static, R: 'static> {
   name:     &'static str,
   args:     String,
   pipeline: PipelineRef<T>,
-  fun:      Box<dyn FnMut(T, Timestamp, &mut Vec<Action>) -> R>,
+  fun:      Box<dyn FnMut(T, Timestamp, LayerMask, &mut Vec<Action>) -> R>,
   out:      Option<R>
 }
 
 impl<T: Copy + 'static, R: Copy + 'static> FnStage<T, R> {
 
-  pub fn from(name: &'static str, args: String, pipeline: PipelineRef<T>, fun: Box<dyn FnMut(T, Timestamp, &mut Vec<Action>) -> R>) -> Self {
+  pub fn from(name: &'static str, args: String, pipeline: PipelineRef<T>, fun: Box<dyn FnMut(T, Timestamp, LayerMask, &mut Vec<Action>) -> R>) -> Self {
     FnStage { stage_id: generate_stage_id(), name, args, pipeline, fun, out: None }
   }
 }
@@ -187,7 +187,7 @@ impl<T: Copy + 'static, R: Copy + 'static> Pipeline<R> for FnStage<T, R> {
 
   fn apply(&mut self, ctx: &Context, actions: &mut Vec<Action>) -> R {
     if self.out.is_none() {
-      self.out = Some((self.fun)(self.pipeline.borrow_mut().apply(ctx, actions), ctx.time, actions));
+      self.out = Some((self.fun)(self.pipeline.borrow_mut().apply(ctx, actions), ctx.time, ctx.layers, actions));
     }
     self.out.unwrap()
   }
@@ -213,13 +213,13 @@ pub struct BiFnStage<T: 'static, U: 'static, R: 'static> {
   args:      String,
   pipeline1: PipelineRef<T>,
   pipeline2: PipelineRef<U>,
-  fun:       Box<dyn FnMut(T, U, Timestamp, &mut Vec<Action>) -> R>,
+  fun:       Box<dyn FnMut(T, U, Timestamp, LayerMask, &mut Vec<Action>) -> R>,
   out:       Option<R>
 }
 
 impl<T: Copy + 'static, U: Copy + 'static, R: Copy + 'static> BiFnStage<T, U, R> {
 
-  pub fn from(name: &'static str, args: String, pipeline1: PipelineRef<T>, pipeline2: PipelineRef<U>, fun: Box<dyn FnMut(T, U, Timestamp, &mut Vec<Action>) -> R>) -> Self {
+  pub fn from(name: &'static str, args: String, pipeline1: PipelineRef<T>, pipeline2: PipelineRef<U>, fun: Box<dyn FnMut(T, U, Timestamp, LayerMask, &mut Vec<Action>) -> R>) -> Self {
     BiFnStage { stage_id: generate_stage_id(), name, args, pipeline1, pipeline2, fun, out: None }
   }
 }
@@ -261,7 +261,7 @@ impl<T: Copy + 'static, U: Copy + 'static, R: Copy + 'static> Pipeline<R> for Bi
     if self.out.is_none() {
       let v1 = self.pipeline1.borrow_mut().apply(ctx, actions);
       let v2 = self.pipeline2.borrow_mut().apply(ctx, actions);
-      self.out = Some((self.fun)(v1, v2, ctx.time, actions));
+      self.out = Some((self.fun)(v1, v2, ctx.time, ctx.layers, actions));
     }
     self.out.unwrap()
   }

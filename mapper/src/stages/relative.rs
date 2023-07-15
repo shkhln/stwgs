@@ -5,7 +5,7 @@ pub fn relative(axis: PipelineRef<f32>, button: PipelineRef<bool>) -> PipelineRe
   let mut bstate = to_button_state();
   let mut prev   = 0.0;
 
-  let fun = Box::new(move |value, button, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |value, button, _, _, _: &mut Vec<Action>| {
     match (bstate)(button) {
       ButtonState::Pressed => {
         prev = value;

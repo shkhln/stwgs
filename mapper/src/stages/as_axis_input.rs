@@ -7,7 +7,7 @@ pub fn as_axis_input(pipeline: PipelineRef<bool>, amount: f32, repeat: bool) -> 
 
   let mut bstate = to_button_state();
 
-  let fun = Box::new(move |pressed, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, _, _: &mut Vec<Action>| {
     match bstate(pressed) {
       ButtonState::Pressed  => amount,
       ButtonState::Repeat   => if repeat { amount } else { 0.0 },

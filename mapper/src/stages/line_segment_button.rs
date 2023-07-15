@@ -8,7 +8,7 @@ pub fn line_segment_button(pipeline: PipelineRef<f32>, from: f32, to: f32, margi
 
   let mut pressed = false;
 
-  let fun = Box::new(move |x, _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |x, _, _, _: &mut Vec<Action>| {
 
     pressed = match () {
       _ if x >= from          && x <= to          => true,

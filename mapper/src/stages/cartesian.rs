@@ -2,7 +2,7 @@ use super::*;
 
 pub fn cartesian(pipeline: PipelineRef<(f32, f32)>) -> PipelineRef<(f32, f32)> {
 
-  let fun = Box::new(move |(distance, angle): (f32, f32), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(distance, angle): (f32, f32), _, _, _: &mut Vec<Action>| {
     let x = distance * angle.cos();
     let y = distance * angle.sin();
     (x, y)

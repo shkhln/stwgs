@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn keyboard_key_press(pipeline: PipelineRef<bool>, key: KeyboardKey) -> Box<dyn Pipeline<()>> {
-  let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
     if pressed {
       actions.push(Action::PressKeyboardKey(key));
     }
@@ -10,7 +10,7 @@ pub fn keyboard_key_press(pipeline: PipelineRef<bool>, key: KeyboardKey) -> Box<
 }
 
 pub fn mouse_button_press(pipeline: PipelineRef<bool>, btn: MouseButton) -> Box<dyn Pipeline<()>> {
-  let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
     if pressed {
       actions.push(Action::PressMouseButton(btn));
     }
@@ -19,7 +19,7 @@ pub fn mouse_button_press(pipeline: PipelineRef<bool>, btn: MouseButton) -> Box<
 }
 
 pub fn mouse_move(pipeline: PipelineRef<f32>, axis: MouseAxis) -> Box<dyn Pipeline<()>> {
-  let fun = Box::new(move |value, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |value, _, _, actions: &mut Vec<Action>| {
     actions.push(Action::MoveMouse(axis, value));
   });
   Box::new(FnStage::from("mouse_move", format!("{:?}", axis), pipeline, fun))
@@ -29,7 +29,7 @@ pub fn switch_mode(pipeline: PipelineRef<bool>, mask: crate::mapper::LayerMask) 
 
   let mut bstate = to_button_state();
 
-  let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
     if bstate(pressed) == ButtonState::Pressed {
       actions.push(Action::SetLayerMask(mask));
     }
@@ -43,13 +43,11 @@ pub fn cycle_modes(pipeline: PipelineRef<bool>, masks: Vec<crate::mapper::LayerM
   let args = format!("{:?}", masks);
 
   let mut bstate = to_button_state();
-  let mut i = 0;
 
-  let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, mode, actions: &mut Vec<Action>| {
     if bstate(pressed) == ButtonState::Pressed {
-      let mask = masks[i];
-      i = (i + 1) % masks.len();
-      actions.push(Action::SetLayerMask(mask));
+      let i = masks.iter().position(|&m| m == mode).unwrap_or(0);
+      actions.push(Action::SetLayerMask(masks[(i + 1) % masks.len()]));
     }
   });
 
@@ -116,7 +114,7 @@ pub fn trigger_bump(button: PipelineRef<bool>, left: bool) -> Box<dyn Pipeline<(
 
   let mut bstate = to_button_state();
 
-  let fun = Box::new(move |pressed, _, actions: &mut Vec<Action>| {
+  let fun = Box::new(move |pressed, _, _, actions: &mut Vec<Action>| {
     if (bstate)(pressed) == ButtonState::Pressed {
       let target = if left { HapticFeedbackTarget::LeftTrigger } else { HapticFeedbackTarget::RightTrigger };
       actions.push(Action::HapticFeedback(target, HapticFeedbackEffect::SlightBump));

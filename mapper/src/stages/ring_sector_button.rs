@@ -36,7 +36,7 @@ pub fn ring_sector_button(field: PipelineRef<(f32, f32)>, opts: RingSectorButton
 
   let mut pressed = false;
 
-  let fun = Box::new(move |(x, y), _, _: &mut Vec<Action>| {
+  let fun = Box::new(move |(x, y), _, _, _: &mut Vec<Action>| {
 
     let test = check(opts, x + opts.margin / 2.0,  y);
     if test != check(opts, x - opts.margin / 2.0,  y) { return pressed; }
