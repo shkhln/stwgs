@@ -40,14 +40,20 @@ pub fn switch_mode(pipeline: PipelineRef<bool>, mask: crate::mapper::LayerMask) 
 
 pub fn cycle_modes(pipeline: PipelineRef<bool>, masks: Vec<crate::mapper::LayerMask>) -> Box<dyn Pipeline<()>> {
 
+  assert!(masks.len() > 1);
+
   let args = format!("{:?}", masks);
 
   let mut bstate = to_button_state();
 
   let fun = Box::new(move |pressed, _, mode, actions: &mut Vec<Action>| {
     if bstate(pressed) == ButtonState::Pressed {
-      let i = masks.iter().position(|&m| m == mode).unwrap_or(0);
-      actions.push(Action::SetLayerMask(masks[(i + 1) % masks.len()]));
+      let mask = if let Some(i) = masks.iter().position(|&m| m == mode) {
+        masks[(i + 1) % masks.len()]
+      } else {
+        masks[0]
+      };
+      actions.push(Action::SetLayerMask(mask));
     }
   });
 
