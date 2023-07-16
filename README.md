@@ -46,7 +46,7 @@ input(Roll ).scale(-20).bind(Ms.X),
 input(Pitch).scale(-15).bind(Ms.Y),
 ```
 
-To spice things a little some of those transformations accept other
+To spice things up a little some of those transformations accept other
 transformation chains (aka pipelines) as their parameters:
 ```
 input(Yaw  ).gate(input(RPadTouch)).scale(-15).bind(Ms.X), // take gyro's yaw angular velocity but only when the right pad is touched, etc
