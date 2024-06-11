@@ -12,7 +12,7 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
     visuals: {
       let mut visuals = egui::Visuals::dark();
       visuals.widgets.noninteractive.bg_fill   = egui::Color32::TRANSPARENT;
-      visuals.widgets.noninteractive.bg_stroke = egui::Stroke::none();
+      visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
       visuals
     },
     ..Default::default()
@@ -20,136 +20,135 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
 
   let raw_input = egui::RawInput::default();
   ctx.run(raw_input, |ctx| {
+
+    let style = egui::Style {
+      visuals: {
+        let mut visuals = egui::Visuals::dark();
+        visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
+        visuals
+      },
+      ..Default::default()
+    };
+
     egui::SidePanel::left("whatever")
+      .frame(egui::Frame::canvas(&style))
       .show(ctx, |ui| {
 
-        let style = egui::Style {
-          visuals: {
-            let mut visuals = egui::Visuals::dark();
-            visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
-            visuals
-          },
-          ..Default::default()
-        };
+        let (_, painter) = ui.allocate_painter(vec2(screen_width as f32, screen_height as f32), egui::Sense::hover());
 
-        egui::Frame::canvas(&style).show(ui, |ui| {
+        for layers in overlay.shapes.values() {
+          for (shape_set, mask) in layers {
+            for (i, shape) in shape_set.iter().enumerate() {
+              if mask & (1 << i) != 0 {
 
-          let (_, painter) = ui.allocate_painter(vec2(screen_width as f32, screen_height as f32), egui::Sense::hover());
+                fn to_pos2(p: &Point, screen_width: u32, screen_height: u32) -> Pos2 {
+                  pos2(p.x.to_px(screen_width, screen_height), p.y.to_px(screen_width, screen_height))
+                }
 
-          for layers in overlay.shapes.values() {
-            for (shape_set, mask) in layers {
-              for (i, shape) in shape_set.iter().enumerate() {
-                if mask & (1 << i) != 0 {
+                fn to_color32(color: &Color) -> Color32 {
+                  Color32::from_rgba_unmultiplied(
+                    (color.r * 255.0) as u8,
+                    (color.g * 255.0) as u8,
+                    (color.b * 255.0) as u8,
+                    (color.a * 255.0) as u8)
+                }
 
-                  fn to_pos2(p: &Point, screen_width: u32, screen_height: u32) -> Pos2 {
-                    pos2(p.x.to_px(screen_width, screen_height), p.y.to_px(screen_width, screen_height))
-                  }
+                match shape {
+                  Shape::Circle { center, radius, color, label } => {
 
-                  fn to_color32(color: &Color) -> Color32 {
-                    Color32::from_rgba_unmultiplied(
-                      (color.r * 255.0) as u8,
-                      (color.g * 255.0) as u8,
-                      (color.b * 255.0) as u8,
-                      (color.a * 255.0) as u8)
-                  }
+                    let center = to_pos2(center, screen_width, screen_height);
 
-                  match shape {
-                    Shape::Circle { center, radius, color, label } => {
+                    if color.a > 0.0 {
+                      painter.circle_filled(center, radius.to_px(screen_width, screen_height), to_color32(color));
+                    }
 
-                      let center = to_pos2(center, screen_width, screen_height);
-
-                      if color.a > 0.0 {
-                        painter.circle_filled(center, radius.to_px(screen_width, screen_height), to_color32(color));
+                    if let Some((text, color)) = label {
+                      if !text.is_empty() {
+                        let font = egui::FontId::new(screen_height as f32 * 0.05, egui::FontFamily::Monospace);
+                        painter.text(center, Align2::CENTER_CENTER, text, font, to_color32(color));
                       }
-
-                      if let Some((text, color)) = label {
-                        if !text.is_empty() {
-                          let font = egui::FontId::new(screen_height as f32 * 0.05, egui::FontFamily::Monospace);
-                          painter.text(center, Align2::CENTER_CENTER, text, font, to_color32(color));
-                        }
-                      }
-                    },
-                    Shape::Ring { center, inner_radius, outer_radius, color } => {
-                      if color.a > 0.0 {
-                        let center       = to_pos2(center, screen_width, screen_height);
-                        let inner_radius = inner_radius.to_px(screen_width, screen_height);
-                        let outer_radius = outer_radius.to_px(screen_width, screen_height);
-                        let ring_width   = outer_radius - inner_radius;
-                        let mid_radius   = inner_radius + ring_width / 2.0;
-                        painter.circle_stroke(center, mid_radius, egui::Stroke::new(ring_width, to_color32(color)));
-                      }
-                    },
-                    Shape::RingSector { center, direction, width, inner_radius, outer_radius, color, label } => {
-
+                    }
+                  },
+                  Shape::Ring { center, inner_radius, outer_radius, color } => {
+                    if color.a > 0.0 {
                       let center       = to_pos2(center, screen_width, screen_height);
                       let inner_radius = inner_radius.to_px(screen_width, screen_height);
                       let outer_radius = outer_radius.to_px(screen_width, screen_height);
                       let ring_width   = outer_radius - inner_radius;
+                      let mid_radius   = inner_radius + ring_width / 2.0;
+                      painter.circle_stroke(center, mid_radius, egui::Stroke::new(ring_width, to_color32(color)));
+                    }
+                  },
+                  Shape::RingSector { center, direction, width, inner_radius, outer_radius, color, label } => {
 
-                      if color.a > 0.0 {
-                        let mid_radius = inner_radius + ring_width / 2.0;
-                        let offset     = direction.to_rad() - (width.to_rad() / 2.0);
-                        let steps      = ((outer_radius / 1080.0).sqrt() * 128.0 * (width.to_rad() / std::f32::consts::PI * 2.0))
-                          .clamp(8.0, 128.0) as usize;
-                        let step_width = width.to_rad() / steps as f32;
+                    let center       = to_pos2(center, screen_width, screen_height);
+                    let inner_radius = inner_radius.to_px(screen_width, screen_height);
+                    let outer_radius = outer_radius.to_px(screen_width, screen_height);
+                    let ring_width   = outer_radius - inner_radius;
 
-                        let mut points = vec![];
-                        for i in 0..=steps {
-                          let cos0 = (offset + step_width * i as f32).cos();
-                          let sin0 = (offset + step_width * i as f32).sin();
-                          points.push(pos2(center[0] + cos0 * mid_radius, center[1] + sin0 * mid_radius));
-                        }
+                    if color.a > 0.0 {
+                      let mid_radius = inner_radius + ring_width / 2.0;
+                      let offset     = direction.to_rad() - (width.to_rad() / 2.0);
+                      let steps      = ((outer_radius / 1080.0).sqrt() * 128.0 * (width.to_rad() / std::f32::consts::PI * 2.0))
+                        .clamp(8.0, 128.0) as usize;
+                      let step_width = width.to_rad() / steps as f32;
 
-                        painter.add(egui::Shape::line(points, egui::Stroke::new(ring_width, to_color32(color))));
+                      let mut points = vec![];
+                      for i in 0..=steps {
+                        let cos0 = (offset + step_width * i as f32).cos();
+                        let sin0 = (offset + step_width * i as f32).sin();
+                        points.push(pos2(center[0] + cos0 * mid_radius, center[1] + sin0 * mid_radius));
                       }
 
-                      if let Some((text, color)) = label {
-                        if !text.is_empty() {
-                          let r    = inner_radius + ring_width * (3.0 / 4.0);
-                          let x    = center[0] + direction.to_rad().cos() * r;
-                          let y    = center[1] + direction.to_rad().sin() * r;
-                          let font = egui::FontId::new(width.to_rad() * r * 0.6, egui::FontFamily::Monospace);
-                          painter.text(pos2(x, y), Align2::CENTER_CENTER, text, font, to_color32(color));
-                        }
-                      }
-                    },
-                    Shape::RegularHexagon { center, circumradius, color, label } => {
+                      painter.add(egui::Shape::line(points, egui::Stroke::new(ring_width, to_color32(color))));
+                    }
 
-                      let center       = to_pos2(center, screen_width, screen_height);
-                      let circumradius = circumradius.to_px(screen_width, screen_height);
-
-                      if color.a > 0.0 {
-
-                        fn corner(i: usize) -> Vec2 {
-                          let angle = std::f32::consts::PI / 3.0 * i as f32; //- std::f32::consts::PI / 6.0;
-                          vec2(angle.cos(), angle.sin())
-                        }
-
-                        let points = vec![
-                          center + corner(0) * circumradius,
-                          center + corner(1) * circumradius,
-                          center + corner(2) * circumradius,
-                          center + corner(3) * circumradius,
-                          center + corner(4) * circumradius,
-                          center + corner(5) * circumradius
-                        ];
-
-                        painter.add(egui::Shape::convex_polygon(points, to_color32(color), egui::Stroke::none()));
-                      }
-
-                      if let Some((text, color)) = label {
-                        if !text.is_empty() {
-                          let font = egui::FontId::new(circumradius * 0.8, egui::FontFamily::Monospace);
-                          painter.text(center, Align2::CENTER_CENTER, text, font, to_color32(color));
-                        }
+                    if let Some((text, color)) = label {
+                      if !text.is_empty() {
+                        let r    = inner_radius + ring_width * (3.0 / 4.0);
+                        let x    = center[0] + direction.to_rad().cos() * r;
+                        let y    = center[1] + direction.to_rad().sin() * r;
+                        let font = egui::FontId::new(width.to_rad() * r * 0.6, egui::FontFamily::Monospace);
+                        painter.text(pos2(x, y), Align2::CENTER_CENTER, text, font, to_color32(color));
                       }
                     }
-                  };
-                }
+                  },
+                  Shape::RegularHexagon { center, circumradius, color, label } => {
+
+                    let center       = to_pos2(center, screen_width, screen_height);
+                    let circumradius = circumradius.to_px(screen_width, screen_height);
+
+                    if color.a > 0.0 {
+
+                      fn corner(i: usize) -> Vec2 {
+                        let angle = std::f32::consts::PI / 3.0 * i as f32; //- std::f32::consts::PI / 6.0;
+                        vec2(angle.cos(), angle.sin())
+                      }
+
+                      let points = vec![
+                        center + corner(0) * circumradius,
+                        center + corner(1) * circumradius,
+                        center + corner(2) * circumradius,
+                        center + corner(3) * circumradius,
+                        center + corner(4) * circumradius,
+                        center + corner(5) * circumradius
+                      ];
+
+                      painter.add(egui::Shape::convex_polygon(points, to_color32(color), egui::Stroke::NONE));
+                    }
+
+                    if let Some((text, color)) = label {
+                      if !text.is_empty() {
+                        let font = egui::FontId::new(circumradius * 0.8, egui::FontFamily::Monospace);
+                        painter.text(center, Align2::CENTER_CENTER, text, font, to_color32(color));
+                      }
+                    }
+                  }
+                };
               }
             }
           }
-        });
+        }
 
         if overlay.hud_is_active {
           let rect = Rect::from_min_size(
@@ -201,7 +200,7 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
                   .color(Color32::WHITE)));
             });
 
-            ui.painter().rect(rect, egui::Rounding::none(), Color32::TRANSPARENT, egui::Stroke::new(3.0, Color32::GREEN));
+            ui.painter().rect(rect, egui::Rounding::ZERO, Color32::TRANSPARENT, egui::Stroke::new(3.0, Color32::GREEN));
           }
         }
 

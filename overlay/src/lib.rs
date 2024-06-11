@@ -13,17 +13,17 @@ mod wgpu_util;
 use definitions::*;
 use overlay_ipc::{Knob, OverlayCommand, OverlayMenuCommand, Shape};
 
-pub struct WGPUSwapchainProps {
+pub struct WGPUSwapchainProps<'window> {
   pub width:            u32,
   pub height:           u32,
   pub instance:         wgpu::Instance,
   pub adapter:          wgpu::Adapter,
   pub device:           wgpu::Device,
   pub queue:            wgpu::Queue,
-  pub surface:          wgpu::Surface,
+  pub surface:          wgpu::Surface<'window>,
   //pub pipeline:         wgpu::RenderPipeline,
   pub compute_pipeline: wgpu::ComputePipeline,
-  pub egui_rpass:       egui_wgpu::renderer::RenderPass,
+  pub egui_renderer:    egui_wgpu::Renderer,
   pub egui_ctx:         egui::Context
 }
 
@@ -77,7 +77,7 @@ impl Default for OverlayState {
 
 lazy_static! {
 
-  static ref WGPU_SWAPCHAIN_PROPS: Mutex<HashMap<ash::vk::SwapchainKHR, WGPUSwapchainProps>> = Mutex::new(HashMap::new());
+  static ref WGPU_SWAPCHAIN_PROPS: Mutex<HashMap<ash::vk::SwapchainKHR, WGPUSwapchainProps<'static>>> = Mutex::new(HashMap::new());
 
   static ref OVERLAY_STATE: Mutex<OverlayState> = Mutex::new(OverlayState::new());
 
@@ -512,23 +512,23 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
         adapter
           .request_device(
             &wgpu::DeviceDescriptor {
-              label:    None,
-              features: wgpu::Features::empty(),
-              limits:   wgpu::Limits::default()
+              label:             None,
+              required_features: wgpu::Features::empty(),
+              required_limits:   wgpu::Limits::default()
                 .using_resolution(adapter.limits()),
             },
             None)
       ).expect("Failed to create device");
 
-      let wgpu_surface = wgpu_util::create_surface(&wgpu_instance, &wgpu_device, create_info);
+      let wgpu_surface = wgpu_util::create_surface(&wgpu_instance, &wgpu_device, create_info).unwrap();
       //println!("wgpu surface: {:?}", wgpu_surface);
 
       //let pipeline = wgpu_util::prepare(&adapter, &wgpu_device, &wgpu_surface);
       let compute_pipeline = wgpu_util::prepare_compute_pipeline(&wgpu_device);
 
-      let egui_ctx   = egui::Context::default();
-      let egui_rpass = egui_wgpu::renderer::RenderPass::new(&wgpu_device,
-        wgpu::TextureFormat::Bgra8Unorm /*wgpu_surface.get_preferred_format(&adapter).unwrap()*/, 1);
+      let egui_ctx      = egui::Context::default();
+      let egui_renderer = egui_wgpu::Renderer::new(&wgpu_device,
+        wgpu::TextureFormat::Bgra8Unorm /*wgpu_surface.get_preferred_format(&adapter).unwrap()*/, None, 1);
 
       WGPU_SWAPCHAIN_PROPS.lock().unwrap().insert(*swapchain, WGPUSwapchainProps {
         width:    (*create_info).image_extent.width,
@@ -540,7 +540,7 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
         surface:  wgpu_surface,
         //pipeline,
         compute_pipeline,
-        egui_rpass,
+        egui_renderer,
         egui_ctx
       });
     }
@@ -636,37 +636,56 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
     }
 
     let egui_output        = gui::draw_ui(&overlay, &wgpu_props.egui_ctx, (screen_width, screen_height), scraping_result);
-    let clipped_primitives = wgpu_props.egui_ctx.tessellate(egui_output.shapes);
+    let clipped_primitives = wgpu_props.egui_ctx.tessellate(egui_output.shapes, wgpu_props.egui_ctx.pixels_per_point());
 
     let mut encoder = wgpu_props.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("egui encoder") });
 
-    let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+    let screen_descriptor = egui_wgpu::ScreenDescriptor {
       size_in_pixels:  [wgpu_props.width, wgpu_props.height],
       pixels_per_point: 1.0 // ?
     };
 
-    let egui_rpass = &mut wgpu_props.egui_rpass;
+    let egui_renderer = &mut wgpu_props.egui_renderer;
 
     for (id, delta) in egui_output.textures_delta.set {
-      egui_rpass.update_texture(&wgpu_props.device, &wgpu_props.queue, id, &delta);
+      egui_renderer.update_texture(&wgpu_props.device, &wgpu_props.queue, id, &delta);
     }
 
-    egui_rpass.update_buffers(&wgpu_props.device, &wgpu_props.queue, &clipped_primitives, &screen_descriptor);
+    egui_renderer.update_buffers(&wgpu_props.device, &wgpu_props.queue, &mut encoder, &clipped_primitives, &screen_descriptor);
 
     let view = frame
       .texture
       .create_view(&wgpu::TextureViewDescriptor {
-        label: None,
-        format: Some(wgpu::TextureFormat::Bgra8Unorm),
+        label:             None,
+        format:            Some(wgpu::TextureFormat::Bgra8Unorm),
         dimension:         Some(wgpu::TextureViewDimension::D2),
         aspect:            wgpu::TextureAspect::All, // ?
         base_mip_level:    0,
-        mip_level_count:   std::num::NonZeroU32::new(1), // ?
+        mip_level_count:   Some(1), // ?
         base_array_layer:  0,
-        array_layer_count: std::num::NonZeroU32::new(1) // ?
+        array_layer_count: None //Some(1) // ?
       });
 
-    egui_rpass.execute(&mut encoder, &view, &clipped_primitives, &screen_descriptor, Some(wgpu::Color::GREEN));
+    {
+      let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("egui"),
+        color_attachments: &[
+          Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            resolve_target: None, // ?
+            ops: wgpu::Operations {
+              load:  wgpu::LoadOp::Load,
+              store: wgpu::StoreOp::Store
+            },
+          })
+        ],
+        depth_stencil_attachment: None,
+        timestamp_writes:         None,
+        occlusion_query_set:      None
+      });
+
+      egui_renderer.render(&mut render_pass, &clipped_primitives, &screen_descriptor);
+    }
 
     wgpu_props.queue.submit(Some(encoder.finish()));
 
@@ -680,11 +699,11 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
 
     //frame.present(); // noop
     device.queue_wait_idle(queue).unwrap(); // validation error in wgpu 0.12
-    frame.texture.destroy();
+    //frame.texture.destroy();
 
     // TODO: are we supposed to free textures here?
     for id in egui_output.textures_delta.free {
-      wgpu_props.egui_rpass.free_texture(&id);
+      wgpu_props.egui_renderer.free_texture(&id);
     }
 
     //std::thread::sleep(std::time::Duration::from_millis(10000));

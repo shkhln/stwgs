@@ -286,48 +286,37 @@ pub unsafe fn create_wgpu_instance(instance: ash::vk::Instance, device: ash::vk:
     ash_entry,
     ash_instance,
     ash::vk::API_VERSION_1_0 /* create_info.p_application_info.api_version */,
-    0,
+    0, // android_sdk_version
+    None, // debug_utils_create_info
     vec![ash::extensions::khr::XcbSurface::name()],
-    wgpu_hal::InstanceFlags::empty(),
-    false,
-    None
+    wgpu::InstanceFlags::empty(),
+    false, // has_nv_optimus
+    None // drop_guard
   ).unwrap();
 
   wgpu::Instance::from_hal::<wgpu_hal::api::Vulkan>(wgpu_hal_instance)
 }
 
-pub unsafe fn create_surface(
+pub unsafe fn create_surface<'window>(
   wgpu_instance: &wgpu::Instance,
   wgpu_device:   &wgpu::Device,
   create_info:   *const ash::vk::SwapchainCreateInfoKHR
 )
-  -> wgpu::Surface
+  -> Result<wgpu::Surface<'window>, wgpu::CreateSurfaceError>
 {
   {
     let mut dstate = STATE.lock().unwrap();
     dstate.surface = (*create_info).surface;
   }
 
-  struct XcbWindow {
-    pub window: u32,
-    pub connection: *mut std::os::raw::c_void,
-  }
-
-  unsafe impl raw_window_handle::HasRawWindowHandle for XcbWindow {
-
-    fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
-
-      use raw_window_handle::XcbHandle;
-      let mut handle = XcbHandle::empty();
-
-      handle.window     = self.window;
-      handle.connection = self.connection;
-
-      raw_window_handle::RawWindowHandle::Xcb(handle)
+  // we don't really care what is being passed here, wgpu_create_xcb_surface_khr will return the proper surface
+  use std::mem::transmute;
+  let wgpu_surface = wgpu_instance.create_surface_unsafe(
+    wgpu::SurfaceTargetUnsafe::RawHandle {
+      raw_window_handle:  raw_window_handle::RawWindowHandle::Xcb(transmute(42 as u64)),
+      raw_display_handle: raw_window_handle::RawDisplayHandle::Xcb(transmute(42 as u128))
     }
-  }
-
-  let wgpu_surface = wgpu_instance.create_surface(&XcbWindow { window: 0, connection: std::ptr::null_mut() });
+  ).unwrap();
 
   wgpu_surface.configure(wgpu_device, &wgpu::SurfaceConfiguration {
     usage: {
@@ -367,23 +356,26 @@ pub unsafe fn create_surface(
       flags
     },
     format:
-    match (*create_info).image_format {
-      ash::vk::Format::B8G8R8A8_SRGB  => wgpu::TextureFormat::Bgra8UnormSrgb,
-      ash::vk::Format::B8G8R8A8_UNORM => wgpu::TextureFormat::Bgra8Unorm,
-      format => unimplemented!("Unknown image format: {:?}", format)
-    },
+      match (*create_info).image_format {
+        ash::vk::Format::B8G8R8A8_SRGB  => wgpu::TextureFormat::Bgra8UnormSrgb,
+        ash::vk::Format::B8G8R8A8_UNORM => wgpu::TextureFormat::Bgra8Unorm,
+        format => unimplemented!("Unknown image format: {:?}", format)
+      },
     width:  (*create_info).image_extent.width,  // ?
     height: (*create_info).image_extent.height, // ?
     present_mode:
-    match (*create_info).present_mode {
-      ash::vk::PresentModeKHR::IMMEDIATE => wgpu::PresentMode::Immediate,
-      ash::vk::PresentModeKHR::FIFO      => wgpu::PresentMode::Fifo,
-      ash::vk::PresentModeKHR::MAILBOX   => wgpu::PresentMode::Mailbox,
-      mode => unimplemented!("Unknown presentation mode: {:?}", mode)
-    }
+      match (*create_info).present_mode {
+        ash::vk::PresentModeKHR::IMMEDIATE => wgpu::PresentMode::Immediate,
+        ash::vk::PresentModeKHR::FIFO      => wgpu::PresentMode::Fifo,
+        ash::vk::PresentModeKHR::MAILBOX   => wgpu::PresentMode::Mailbox,
+        mode => unimplemented!("Unknown presentation mode: {:?}", mode)
+      },
+    desired_maximum_frame_latency: 2, // ?
+    alpha_mode: wgpu::CompositeAlphaMode::Auto,
+    view_formats: vec![]
   });
 
-  wgpu_surface
+  Ok(wgpu_surface)
 }
 
 pub fn get_frame(surface: &wgpu::Surface, image_index: u32) -> wgpu::SurfaceTexture {
@@ -469,9 +461,9 @@ pub fn compute(
       dimension:         Some(wgpu::TextureViewDimension::D2),
       aspect:            wgpu::TextureAspect::All, // ?
       base_mip_level:    0,
-      mip_level_count:   std::num::NonZeroU32::new(1), // ?
+      mip_level_count:   Some(1), // ?
       base_array_layer:  0,
-      array_layer_count: std::num::NonZeroU32::new(1) // ?
+      array_layer_count: Some(1) // ?
     });
 
   let targets_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -536,7 +528,7 @@ pub fn compute(
   let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
   {
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
     pass.set_bind_group(0, &bind_group, &[]);
     pass.set_pipeline(pipeline);
     pass.dispatch_workgroups(1, 1, 1); // ?
