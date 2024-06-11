@@ -4,14 +4,17 @@ use std::thread;
 pub use ipc_channel::ipc;
 use ipc_channel::ipc::{IpcError, IpcOneShotServer, IpcSender};
 
+use lazy_static::lazy_static;
+
 pub type CommandSender   = IpcSender<OverlayCommand>;
 pub type CommandReceiver = mpsc::Receiver<OverlayCommand>;
 
 //TODO: filter by overlay name
 pub fn connect_to_overlay() -> Result<Option<CommandSender>, Box<dyn std::error::Error>> {
-  use zbus::{dbus_proxy, Connection};
 
-  #[dbus_proxy(interface = "stwgs.Overlay", default_path = "/overlay")]
+  use zbus::{proxy, Connection};
+
+  #[proxy(interface = "stwgs.Overlay", default_path = "/overlay")]
   trait SCOverlay {
     fn overlay_name(&self)    -> zbus::fdo::Result<String>;
     fn ipc_server_name(&self) -> zbus::fdo::Result<String>;
@@ -39,6 +42,10 @@ pub fn connect_to_overlay() -> Result<Option<CommandSender>, Box<dyn std::error:
   }
 
   Ok(None)
+}
+
+lazy_static! {
+  static ref DBUS_CONNECTION: Mutex<Option<zbus::Connection>> = Mutex::new(None);
 }
 
 pub fn process_incoming_commands(overlay_name: &str) -> CommandReceiver {
@@ -75,7 +82,7 @@ pub fn process_incoming_commands(overlay_name: &str) -> CommandReceiver {
     (server_name, thread_handle)
   }
 
-  use zbus::{dbus_interface, ConnectionBuilder};
+  use zbus::{interface, ConnectionBuilder};
 
   struct SCOverlay {
     overlay_name: String,
@@ -83,7 +90,7 @@ pub fn process_incoming_commands(overlay_name: &str) -> CommandReceiver {
     mpsc_sender:  Mutex<mpsc::Sender<OverlayCommand>>
   }
 
-  #[dbus_interface(name = "stwgs.Overlay")]
+  #[interface(name = "stwgs.Overlay")]
   impl SCOverlay {
     fn overlay_name(&self) -> &String {
       &self.overlay_name
@@ -102,15 +109,19 @@ pub fn process_incoming_commands(overlay_name: &str) -> CommandReceiver {
     }
   }
 
+  let mut connection = DBUS_CONNECTION.lock().unwrap();
+  assert!(connection.is_none());
+
   let overlay_dbus_object =
     SCOverlay { overlay_name: overlay_name.to_string(), ipc_server: None, mpsc_sender: Mutex::new(mpsc_sender) };
 
-  futures::executor::block_on(
-    ConnectionBuilder::session().unwrap()
-      .name(format!("stwgs.Overlay{}", std::process::id())).unwrap()
-      .serve_at("/overlay", overlay_dbus_object).unwrap()
-      .build())
-    .unwrap();
+  *connection = Some(
+    futures::executor::block_on(
+      ConnectionBuilder::session().unwrap()
+        .name(format!("stwgs.Overlay{}", std::process::id())).unwrap()
+        .serve_at("/overlay", overlay_dbus_object).unwrap()
+        .build())
+      .unwrap());
 
   mpsc_receiver
 }
