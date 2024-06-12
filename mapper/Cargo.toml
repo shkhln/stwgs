@@ -5,24 +5,19 @@ authors = ["Alex S"]
 edition = "2021"
 
 [dependencies]
-clap         = { version = "4.2.4", features = ["derive"] }
-evdev        = { version = "0.12.1", optional = true }
+clap         = { version = "4.5.7", features = ["derive"] }
+evdev        = { version = "0.12.2", optional = true }
 lazy_static  = "1.4.0"
 libusb       = "0.3"
-pest         = "2.5.7"
-pest_derive  = "2.5.7"
+pest         = "2.7.10"
+pest_derive  = "2.7.10"
 rand         = "0.8.5"
-serde_json   = "1.0.96"
-strum        = "0.24.1"
-strum_macros = "0.24.1"
+sdl2         = { version = "0.36.0", features = ["hidapi"], optional = true }
+serde_json   = "1.0.117"
+strum        = "0.26.2"
+strum_macros = "0.26.4"
 x11          = { version = "2.21.0", optional = true }
-xcb          = { version = "1.2.0", features = ["xtest"], optional = true }
-
-[dependencies.sdl2]
-git      = "https://github.com/Rust-SDL2/rust-sdl2.git"
-rev      = "2848a5443140e3f412a855e8b78e20f8e7fa2d00"
-optional = true
-features = ["hidapi"]
+xcb          = { version = "1.4.0", features = ["xtest"], optional = true }
 
 [dependencies.overlay-ipc]
 package = "overlay-ipc"

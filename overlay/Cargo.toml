@@ -9,12 +9,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ash               = "=0.37.3" # version required by wgpu-hal
-bytemuck          = "1.9.1"
+bytemuck          = "1.16.0"
 egui              = "=0.27.2" # version required by egui-wgpu
 egui-wgpu         = "0.27.2"
-futures           = "0.3"
+futures           = "0.3.30"
 lazy_static       = "1.4.0"
-libc              = "0.2.126"
+libc              = "0.2.155"
 raw-window-handle = "0.6.2"
 
 [dependencies.wgpu]
