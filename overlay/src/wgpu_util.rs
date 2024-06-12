@@ -264,7 +264,7 @@ pub unsafe fn create_wgpu_instance(instance: ash::vk::Instance, device: ash::vk:
       pub _instance_fn_1_2: ash::vk::InstanceFnV1_2,
     }
 
-    let mut instance: &mut XInstance = transmute(instance);
+    let instance: &mut XInstance = transmute(instance);
     instance.instance_fn_1_0.get_device_proc_addr = get_device_proc_addr;
   }
 
@@ -310,7 +310,6 @@ pub unsafe fn create_surface<'window>(
   }
 
   // we don't really care what is being passed here, wgpu_create_xcb_surface_khr will return the proper surface
-  use std::mem::transmute;
   let wgpu_surface = wgpu_instance.create_surface_unsafe(
     wgpu::SurfaceTargetUnsafe::RawHandle {
       raw_window_handle:  raw_window_handle::RawWindowHandle::Xcb(transmute(42 as u64)),

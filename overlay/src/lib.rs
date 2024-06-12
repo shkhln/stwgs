@@ -282,7 +282,7 @@ impl Registry {
         pub _instance_fn_1_2: ash::vk::InstanceFnV1_2
       }
 
-      let mut instance: &mut XInstance = transmute(instance);
+      let instance: &mut XInstance = transmute(instance);
       instance.instance_fn_1_0.get_device_proc_addr = get_device_proc_addr;
     }
 
@@ -407,10 +407,6 @@ unsafe extern "C" fn overlay_vk_create_device(
 
     for i in 0..(*create_info).enabled_extension_count {
       println!("device extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
-    }
-
-    for i in 0..(*create_info).enabled_layer_count {
-      println!("device layer: {}",     CStr::from_ptr(*(*create_info).pp_enabled_layer_names.offset(i as isize)).to_string_lossy());
     }
   }
 
