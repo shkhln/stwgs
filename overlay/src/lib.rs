@@ -339,21 +339,21 @@ unsafe extern "C" fn overlay_vk_create_instance(
 {
   #[cfg(debug_assertions)]
   {
-    println!("overlay_vk_create_instance(#{:p}, #{:p}, #{:p})", create_info, allocator, instance);
+    eprintln!("overlay_vk_create_instance(#{:p}, #{:p}, #{:p})", create_info, allocator, instance);
 
     let api_version = (*(*create_info).p_application_info).api_version;
     assert_eq!(ash::vk::api_version_variant(api_version), 0);
-    println!("api version: {}.{}.{}",
+    eprintln!("api version: {}.{}.{}",
       ash::vk::api_version_major(api_version),
       ash::vk::api_version_minor(api_version),
       ash::vk::api_version_patch(api_version));
 
     for i in 0..(*create_info).enabled_extension_count {
-      println!("instance extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
+      eprintln!("instance extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
     }
 
     for i in 0..(*create_info).enabled_layer_count {
-      println!("instance layer: {}",     CStr::from_ptr(*(*create_info).pp_enabled_layer_names.offset(i as isize)).to_string_lossy());
+      eprintln!("instance layer: {}",     CStr::from_ptr(*(*create_info).pp_enabled_layer_names.offset(i as isize)).to_string_lossy());
     }
   }
 
@@ -403,10 +403,10 @@ unsafe extern "C" fn overlay_vk_create_device(
 {
   #[cfg(debug_assertions)]
   {
-    println!("overlay_vk_create_device");
+    eprintln!("overlay_vk_create_device");
 
     for i in 0..(*create_info).enabled_extension_count {
-      println!("device extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
+      eprintln!("device extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
     }
   }
 
@@ -462,7 +462,6 @@ unsafe extern "C" fn overlay_vk_destroy_device(device: ash::vk::Device, allocato
 
 //TODO: vkGetDeviceQueue2?
 unsafe extern "C" fn overlay_vk_get_device_queue(device: ash::vk::Device, queue_family_index: u32, queue_index: u32, queue: *mut ash::vk::Queue) {
-  println!("overlay_vk_get_device_queue");
   let mut registry = REGISTRY.lock().unwrap();
   *queue = registry.device(device).get_device_queue(queue_family_index, queue_index);
   registry.register_queue(*queue, device);
@@ -476,7 +475,7 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
 )
   -> ash::vk::Result
 {
-  //println!("[overlay_vk_create_swapchain_khr]");
+  //eprintln!("[overlay_vk_create_swapchain_khr]");
   let err = {
     let registry = REGISTRY.lock().unwrap();
     let create_swapchain_khr = registry.swapchain(device).fp().create_swapchain_khr;
@@ -733,7 +732,7 @@ pub unsafe extern "C" fn overlay_vk_get_device_proc_addr(device: ash::vk::Device
   if let Some(fun) = get_overlay_function(name) {
     fun
   } else {
-    println!("overlay_vk_get_device_proc_addr: {:?} {}", device, CStr::from_ptr(name).to_str().unwrap());
+    eprintln!("overlay_vk_get_device_proc_addr: {:?} {}", device, CStr::from_ptr(name).to_str().unwrap());
     let registry = REGISTRY.lock().unwrap();
     transmute(registry.get_device_proc_addr(device, name))
   }
@@ -744,7 +743,7 @@ pub unsafe extern "C" fn overlay_vk_get_instance_proc_addr(instance: ash::vk::In
   if let Some(fun) = get_overlay_function(name) {
     fun
   } else {
-    println!("overlay_vk_get_instance_proc_addr: {:?} {}", instance, CStr::from_ptr(name).to_str().unwrap());
+    eprintln!("overlay_vk_get_instance_proc_addr: {:?} {}", instance, CStr::from_ptr(name).to_str().unwrap());
     let registry = REGISTRY.lock().unwrap();
     transmute(registry.get_instance_proc_addr(instance, name))
   }
