@@ -341,12 +341,16 @@ unsafe extern "C" fn overlay_vk_create_instance(
   {
     eprintln!("overlay_vk_create_instance(#{:p}, #{:p}, #{:p})", create_info, allocator, instance);
 
-    let api_version = (*(*create_info).p_application_info).api_version;
-    assert_eq!(ash::vk::api_version_variant(api_version), 0);
-    eprintln!("api version: {}.{}.{}",
-      ash::vk::api_version_major(api_version),
-      ash::vk::api_version_minor(api_version),
-      ash::vk::api_version_patch(api_version));
+    assert!(!create_info.is_null());
+    let application_info = (*create_info).p_application_info;
+    if !application_info.is_null() {
+      let api_version = (*application_info).api_version;
+      assert_eq!(ash::vk::api_version_variant(api_version), 0);
+      eprintln!("api version: {}.{}.{}",
+        ash::vk::api_version_major(api_version),
+        ash::vk::api_version_minor(api_version),
+        ash::vk::api_version_patch(api_version));
+    }
 
     for i in 0..(*create_info).enabled_extension_count {
       eprintln!("instance extension: {}", CStr::from_ptr(*(*create_info).pp_enabled_extension_names.offset(i as isize)).to_string_lossy());
