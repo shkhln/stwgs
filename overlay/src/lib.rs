@@ -617,9 +617,9 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
 
     let scraping_result = {
       if !overlay.screen_scraping_targets.is_empty() {
+        let targets = overlay.screen_scraping_targets.iter().map(|t| t.0.clone()).collect();
         let scraping_result = wgpu_util::compute(
-          &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &overlay.screen_scraping_targets,
-          screen_width, screen_height);
+          &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
         let _ = overlay.screen_scraping_targets[0].1.send(scraping_result.clone());
         Some(scraping_result)
       } else {

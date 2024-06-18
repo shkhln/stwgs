@@ -445,7 +445,7 @@ pub fn compute(
   device:   &wgpu::Device,
   queue:    &wgpu::Queue,
   pipeline: &wgpu::ComputePipeline,
-  targets:  &Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ipc::IpcSender<overlay_ipc::ScreenScrapingResult>)>,
+  targets:  &Vec<overlay_ipc::ScreenScrapingArea>,
   screen_width:  u32,
   screen_height: u32
 )
@@ -468,36 +468,43 @@ pub fn compute(
   let targets_buffer = device.create_buffer(&wgpu::BufferDescriptor {
     label: None,
     size: 1000, //TODO: how large should that buffer be?
-    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     mapped_at_creation: false // ?
   });
 
   let results_buffer = device.create_buffer(&wgpu::BufferDescriptor {
     label: None,
     size: 100, // ?
-    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::MAP_WRITE,
+    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+    mapped_at_creation: false // ?
+  });
+
+  let results_buffer2 = device.create_buffer(&wgpu::BufferDescriptor {
+    label: None,
+    size: 100, // ?
+    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
     mapped_at_creation: false // ?
   });
 
   let mut offset = 0;
   for target in targets {
     let values = &[
-      target.0.bounds.min.x.to_px(screen_width, screen_height) as u32,
-      target.0.bounds.min.y.to_px(screen_width, screen_height) as u32,
-      target.0.bounds.max.x.to_px(screen_width, screen_height) as u32,
-      target.0.bounds.max.y.to_px(screen_width, screen_height) as u32
+      target.bounds.min.x.to_px(screen_width, screen_height) as u32,
+      target.bounds.min.y.to_px(screen_width, screen_height) as u32,
+      target.bounds.max.x.to_px(screen_width, screen_height) as u32,
+      target.bounds.max.y.to_px(screen_width, screen_height) as u32
     ];
     let bytes = bytemuck::cast_slice::<u32, u8>(values);
     queue.write_buffer(&targets_buffer, offset as u64, bytes);
     offset += bytes.len();
 
     let values = &[
-      target.0.min_hue,
-      target.0.max_hue,
-      target.0.min_sat,
-      target.0.max_sat,
-      target.0.min_val,
-      target.0.max_val,
+      target.min_hue,
+      target.max_hue,
+      target.min_sat,
+      target.max_sat,
+      target.min_val,
+      target.max_val,
     ];
     let bytes = bytemuck::cast_slice::<f32, u8>(values);
     queue.write_buffer(&targets_buffer, offset as u64, bytes);
@@ -533,15 +540,17 @@ pub fn compute(
     pass.dispatch_workgroups(1, 1, 1); // ?
   }
 
+  encoder.copy_buffer_to_buffer(&results_buffer, 0, &results_buffer2, 0, 100);
+
   queue.submit(Some(encoder.finish()));
 
-  let buffer_slice = results_buffer.slice(..);
+  let buffer_slice = results_buffer2.slice(..);
   buffer_slice.map_async(wgpu::MapMode::Read, |_| ());
 
   device.poll(wgpu::Maintain::Wait);
 
   let result = bytemuck::cast_slice::<u8, f32>(&buffer_slice.get_mapped_range()).to_owned();
-  results_buffer.unmap();
+  results_buffer2.unmap();
 
   overlay_ipc::ScreenScrapingResult { pixels_in_range: result[0], uniformity_score: result[1] }
 }
