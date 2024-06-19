@@ -3,5 +3,6 @@ resolver = "2"
 members  = [
   "mapper",
   "overlay",
-  "overlay-ipc"
+  "overlay-ipc",
+  "probes"
 ]

@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 
 mod definitions;
 mod gui;
+mod wasm;
 mod wgpu_util;
 
 use definitions::*;
@@ -30,6 +31,7 @@ pub struct WGPUSwapchainProps<'window> {
 pub struct OverlayState {
   pub hud_is_active: bool,
   pub screen_scraping_targets: Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ipc::IpcSender<overlay_ipc::ScreenScrapingResult>)>,
+  pub screen_scraping_targets2: HashMap<u32, (overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
   pub memory_targets: Vec<(u64, Vec<i32>, overlay_ipc::ipc::IpcSender<u64>)>,
   pub layer_names: Vec<String>,
   pub mode: u64,
@@ -46,6 +48,7 @@ impl OverlayState {
     Self {
       hud_is_active: true,
       screen_scraping_targets: vec![],
+      screen_scraping_targets2: HashMap::new(),
       memory_targets: vec![],
       layer_names: vec![],
       mode: 0,
@@ -60,6 +63,7 @@ impl OverlayState {
   pub fn reset(&mut self) {
     self.hud_is_active = true;
     self.screen_scraping_targets.clear();
+    self.screen_scraping_targets2.clear();
     self.memory_targets.clear();
     self.layer_names.clear();
     self.mode = 0;
@@ -611,17 +615,32 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
     let screen_height  = wgpu_props.height;
 
     let frame = wgpu_util::get_frame(&wgpu_props.surface, *pi.p_image_indices);
-    //wgpu_util::draw(&frame, &wgpu_props.adapter, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.surface, &wgpu_props.pipeline);
 
-    let overlay = OVERLAY_STATE.lock().unwrap();
+    if let Some(ref mut wasm) = wasm::WASM.lock().unwrap().as_mut() {
+      wasm.run_probe(screen_width, screen_height);
+    }
+
+    let mut overlay = OVERLAY_STATE.lock().unwrap();
 
     let scraping_result = {
-      if !overlay.screen_scraping_targets.is_empty() {
+      /*if !overlay.screen_scraping_targets.is_empty() {
         let targets = overlay.screen_scraping_targets.iter().map(|t| t.0.clone()).collect();
         let scraping_result = wgpu_util::compute(
           &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
         let _ = overlay.screen_scraping_targets[0].1.send(scraping_result.clone());
         Some(scraping_result)
+      } else {
+        None
+      }*/
+
+      if !overlay.screen_scraping_targets2.is_empty() {
+        for (_, v) in overlay.screen_scraping_targets2.iter_mut() {
+          let mut targets = vec![v.0.clone()];
+          let scraping_result = wgpu_util::compute(
+            &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
+          *v = (targets.remove(0), scraping_result);
+        }
+        overlay.screen_scraping_targets2.values().nth(0).map(|x| x.1.clone())
       } else {
         None
       }
