@@ -15,7 +15,9 @@ egui-wgpu         = "0.27.2"
 futures           = "0.3.30"
 lazy_static       = "1.4.0"
 libc              = "0.2.155"
+#proc-maps         = "0.3.2"
 raw-window-handle = "0.6.2"
+wasmtime          = "21.0.1"
 
 [dependencies.wgpu]
 version  = "=0.19.1"

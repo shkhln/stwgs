@@ -181,7 +181,7 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
             }
           });
 
-          for target in &overlay.screen_scraping_targets {
+          for (_, target) in overlay.screen_scraping_targets2.iter() {
 
             let min_x = target.0.bounds.min.x.to_px(screen_width, screen_height);
             let min_y = target.0.bounds.min.y.to_px(screen_width, screen_height);

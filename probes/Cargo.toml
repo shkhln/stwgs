@@ -1,0 +1,12 @@
+#cargo-features = ["per-package-target"]
+
+[package]
+name = "probes"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+custom-print = "1.0.0"
