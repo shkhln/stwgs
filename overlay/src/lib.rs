@@ -533,6 +533,9 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
       let egui_renderer = egui_wgpu::Renderer::new(&wgpu_device,
         wgpu::TextureFormat::Bgra8Unorm /*wgpu_surface.get_preferred_format(&adapter).unwrap()*/, None, 1);
 
+      let mut overlay = OVERLAY_STATE.lock().unwrap();
+      overlay.screen_scraping_targets2.clear();
+
       WGPU_SWAPCHAIN_PROPS.lock().unwrap().insert(*swapchain, WGPUSwapchainProps {
         width:    (*create_info).image_extent.width,
         height:   (*create_info).image_extent.height,

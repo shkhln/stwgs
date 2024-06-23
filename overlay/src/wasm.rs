@@ -8,14 +8,23 @@ use crate::OVERLAY_STATE;
 lazy_static! {
   pub static ref WASM: Mutex<Option<WasmState>> = Mutex::new(
     std::env::var("STWGS_OVERLAY_WASM_MODULE").ok().map(|module_path| WasmState::from_file(&module_path)));
+
+  pub static ref REGISTERED_PROBES: Mutex<Vec<Probe>>    = Mutex::new(Vec::new());
+  pub static ref ACTIVE_PROBE_IDX:  Mutex<Option<usize>> = Mutex::new(None);
 }
 
 pub struct WasmState {
   pub engine:   wasmtime::Engine,
   pub store:    wasmtime::Store<()>,
   pub module:   wasmtime::Module,
-  pub instance: wasmtime::Instance,
-  pub probe:    Option<wasmtime::TypedFunc<(u32, u32), u64>>
+  pub instance: wasmtime::Instance
+}
+
+pub struct Probe {
+  name:   String,
+  layers: Vec<String>,
+  test:   wasmtime::TypedFunc<(), i32>,
+  probe:  wasmtime::TypedFunc<(u32, u32), u64>
 }
 
 impl WasmState {
@@ -34,10 +43,19 @@ impl WasmState {
       Ok(String::from_utf8(buf).map_err(|_| ())?)
     }
 
+    fn read_string_until_nul(memory: &mut wasmtime::Memory, store: &impl wasmtime::AsContext, ptr: i32, max_len: i32) -> Result<String, ()> {
+      for i in 0..max_len /* ? */ {
+        if memory.data(store)[(ptr + i) as usize] == 0 {
+          return read_string(memory, store, ptr as i32, i as i32);
+        }
+      }
+      Err(())
+    }
+
     linker.func_wrap("env", "print", |mut caller: wasmtime::Caller<'_, ()>, ptr: i32, len: i32| {
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
         let str = read_string(&mut memory, &caller, ptr, len).unwrap();
-        println!("{}", str);
+        print!("{}", str);
       } else {
         panic!();
       }
@@ -104,68 +122,83 @@ impl WasmState {
       0
     }).unwrap();
 
-    /*linker.func_wrap("env", "_register_probe", |mut caller: wasmtime::Caller<'_, ()>, name_ptr: i32, name_len: i32, probe_idx: i32| {
+    linker.func_wrap("env", "_register_probe", |
+      mut caller: wasmtime::Caller<'_, ()>,
+      name_ptr:   i32,
+      layers_ptr: i32,
+      layers_len: i32,
+      test_idx:   u32,
+      probe_idx:  u32
+    | {
+      eprintln!("_register_probe: {}, {}, {}, {}, {}", name_ptr, layers_ptr, layers_len, test_idx, probe_idx);
+
+      let mut probes = REGISTERED_PROBES.lock().unwrap();
+
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
-        let mut probes = PROBES.lock().unwrap();
-        let name = read_string(&mut memory, &caller, name_ptr, name_len).unwrap();
 
-        println!("probe: {:?}", probe_idx);
+        let name      = read_string_until_nul(&mut memory, &caller, name_ptr, 1000 /* ? */).unwrap();
 
-        let table = caller.get_export("__indirect_function_table")
+        let layers    = &memory.data(&caller)[(layers_ptr as usize)..(layers_ptr as usize + 4 * layers_len as usize)];
+        let layers    = bytemuck::cast_slice::<u8, i32>(layers).iter().map(|s|
+          read_string_until_nul(&mut memory, &caller, *s, 1000 /* ? */).unwrap()).collect::<Vec<_>>();
+
+        let table     = caller.get_export("__indirect_function_table")
           .unwrap()
           .into_table()
           .unwrap();
-        let func = table.get(&mut caller, probe_idx as u32).unwrap()
+        let test_fun  = table.get(&mut caller, test_idx)
+          .unwrap()
+          .unwrap_func()
+          .unwrap()
+          .typed::<(), i32>(&caller)
+          .unwrap();
+        let probe_fun = table.get(&mut caller, probe_idx)
+          .unwrap()
           .unwrap_func()
           .unwrap()
           .typed::<(u32, u32), u64>(&caller)
           .unwrap();
 
-        probes.insert(name, func);
-
+        eprintln!("_register_probe: {}, {:?}", name, layers);
+        probes.push(Probe { name, layers, test: test_fun, probe: probe_fun });
       } else {
         panic!();
       }
-    }).unwrap();*/
+    }).unwrap();
 
     let mut store = wasmtime::Store::new(&engine, ());
 
     let instance = linker.instantiate(&mut store, &module).unwrap();
 
-    let init = instance.get_func(&mut store, "init")
+    instance.get_func(&mut store, "init")
       .unwrap()
-      .typed::<(), i32>(&mut store)
-      .unwrap();
-    let probe_idx = init.call(&mut store, ()).unwrap();
+      .typed::<(), ()>(&mut store)
+      .unwrap()
+      .call(&mut store, ()).unwrap();
 
-    let probe = if probe_idx != 0 {
-      let table = instance.get_export(&mut store, "__indirect_function_table")
-        .unwrap()
-        .into_table()
-        .unwrap();
-      let func = table.get(&mut store, probe_idx as u32).unwrap()
-        .unwrap_func()
-        .unwrap()
-        .typed::<(u32, u32), u64>(&mut store)
-        .unwrap();
+    //TODO: select probe
 
-      Some(func)
-    } else {
-      None
-    };
+    let probes = REGISTERED_PROBES.lock().unwrap();
+
+    if let Some(idx) = probes.iter().position(|p| p.test.call(&mut store, ()).unwrap() == 1) {
+      eprintln!("Selected probe: {}", probes[idx].name);
+      let mut active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
+      *active_idx = Some(idx);
+    }
 
     Self {
       engine,
       store,
       module,
-      instance,
-      probe
+      instance
     }
   }
 
   pub fn run_probe(&mut self, screen_width: u32, screen_height: u32) {
-    if let Some(probe) = &self.probe {
-      let res = probe.call(&mut self.store, (screen_width, screen_height)).unwrap();
+    let probes = REGISTERED_PROBES.lock().unwrap();
+    let active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
+    if let Some(idx) = *active_idx {
+      let res = probes[idx].probe.call(&mut self.store, (screen_width, screen_height)).unwrap();
       println!("probe value: {}", res);
     }
   }
