@@ -73,7 +73,8 @@ pub fn generate_stage_id() -> StageId {
 pub union ProbeValue {
   pub u64:  u64,
   pub f64:  f64,
-  pub ff32: (f32, f32)
+  pub ff32: (f32, f32),
+  pub bool: bool
 }
 
 pub struct Context<'a> {
@@ -111,8 +112,9 @@ pub trait Pipeline<R: Copy> {
 
 #[derive(Clone, Debug)]
 pub enum Probe {
-  Screen { target: overlay_ipc::ScreenScrapingArea },
-  Memory { usize: u8, address: u64, offsets: Vec<i32> }
+  Screen  { target: overlay_ipc::ScreenScrapingArea },
+  Memory  { usize: u8, address: u64, offsets: Vec<i32> },
+  Overlay { name: String }
 }
 
 #[derive(Clone, Debug)]
