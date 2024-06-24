@@ -408,3 +408,47 @@ pub fn memory_probe(spec: &str) -> Result<PipelineRef<bool>, String> {
 
   Ok(std::rc::Rc::new(std::cell::RefCell::new(stage)))
 }
+
+struct OverlayProbeStage {
+  stage_id: StageId,
+  name:     String
+}
+
+impl Pipeline<bool> for OverlayProbeStage {
+
+  fn stage_id(&self) -> StageId {
+    self.stage_id
+  }
+
+  fn name(&self) -> &'static str {
+    "overlay_probe"
+  }
+
+  fn desc(&self) -> String {
+    format!("{}({})", self.name(), self.opts())
+  }
+
+  fn probe(&self) -> Option<Probe> {
+    Some(Probe::Overlay { name: self.name.clone() })
+  }
+
+  fn inspect(&self, out: &mut HashMap<StageId, PipelineStageDescription>) {
+    insert_stage_description(out, self);
+  }
+
+  fn apply(&mut self, ctx: &Context, _: &mut Vec<Action>) -> bool {
+    unsafe { ctx.probe_values[&self.stage_id].bool }
+  }
+
+  fn reset(&mut self) {}
+}
+
+pub fn overlay_probe(name: &str) -> PipelineRef<bool> {
+
+  let stage = OverlayProbeStage {
+    stage_id: generate_stage_id(),
+    name:     name.to_string()
+  };
+
+  std::rc::Rc::new(std::cell::RefCell::new(stage))
+}

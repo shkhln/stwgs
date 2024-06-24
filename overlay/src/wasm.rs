@@ -21,10 +21,10 @@ pub struct WasmState {
 }
 
 pub struct Probe {
-  name:   String,
-  layers: Vec<String>,
-  test:   wasmtime::TypedFunc<(), i32>,
-  probe:  wasmtime::TypedFunc<(u32, u32), u64>
+  pub name:   String,
+  pub layers: Vec<String>,
+  pub test:   wasmtime::TypedFunc<(), i32>,
+  pub probe:  wasmtime::TypedFunc<(u32, u32), u64>
 }
 
 impl WasmState {
@@ -176,8 +176,6 @@ impl WasmState {
       .unwrap()
       .call(&mut store, ()).unwrap();
 
-    //TODO: select probe
-
     let probes = REGISTERED_PROBES.lock().unwrap();
 
     if let Some(idx) = probes.iter().position(|p| p.test.call(&mut store, ()).unwrap() == 1) {
@@ -195,11 +193,15 @@ impl WasmState {
   }
 
   pub fn run_probe(&mut self, screen_width: u32, screen_height: u32) {
-    let probes = REGISTERED_PROBES.lock().unwrap();
     let active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
     if let Some(idx) = *active_idx {
-      let res = probes[idx].probe.call(&mut self.store, (screen_width, screen_height)).unwrap();
-      println!("probe value: {}", res);
+      let probes = REGISTERED_PROBES.lock().unwrap();
+      let mask   = probes[idx].probe.call(&mut self.store, (screen_width, screen_height)).unwrap();
+      println!("probe value: {}", mask);
+      let overlay = OVERLAY_STATE.lock().unwrap();
+      for (idx, sender) in overlay.layer_checks.iter() {
+        let _ = sender.send(mask & (1 << idx) as u64 != 0);
+      }
     }
   }
 }

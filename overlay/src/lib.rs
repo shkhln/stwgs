@@ -33,6 +33,7 @@ pub struct OverlayState {
   pub screen_scraping_targets: Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ipc::IpcSender<overlay_ipc::ScreenScrapingResult>)>,
   pub screen_scraping_targets2: HashMap<u32, (overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
   pub memory_targets: Vec<(u64, Vec<i32>, overlay_ipc::ipc::IpcSender<u64>)>,
+  pub layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
   pub layer_names: Vec<String>,
   pub mode: u64,
   pub status_text: Option<String>,
@@ -50,6 +51,7 @@ impl OverlayState {
       screen_scraping_targets: vec![],
       screen_scraping_targets2: HashMap::new(),
       memory_targets: vec![],
+      layer_checks: vec![],
       layer_names: vec![],
       mode: 0,
       status_text: None,
@@ -65,6 +67,7 @@ impl OverlayState {
     self.screen_scraping_targets.clear();
     self.screen_scraping_targets2.clear();
     self.memory_targets.clear();
+    self.layer_checks.clear();
     self.layer_names.clear();
     self.mode = 0;
     self.status_text = None;
@@ -109,6 +112,20 @@ lazy_static! {
                 overlay.memory_targets.push((address, offsets, sender));
               } else {
                 eprintln!("pointer size mismatch: {:?}", overlay_ipc::OverlayCommand::AddMemoryCheck(pointer_size, address, offsets, sender));
+              }
+            },
+            OverlayCommand::AddOverlayCheck(name, sender) => {
+              let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
+              if let Some(idx) = *active_idx {
+                let probes = wasm::REGISTERED_PROBES.lock().unwrap();
+                if let Some(overlay_layer_idx) = probes[idx].layers.iter().position(|overlay_layer| *overlay_layer == name) {
+                  let mut overlay = OVERLAY_STATE.lock().unwrap();
+                  overlay.layer_checks.push((overlay_layer_idx, sender));
+                } else {
+                  // nope
+                }
+              } else {
+                // nope
               }
             },
             OverlayCommand::ResetOverlay => {

@@ -107,8 +107,9 @@ pub struct Mapper<'m> {
   probes:        HashMap<StageId, Probe>,
   probe_values:  HashMap<StageId, ProbeValue>,
   //TODO: we should probably use a single receiver for all probes or at least refactor them to use a single return type
-  probe_ssr_rcv: HashMap<StageId, overlay_ipc::ipc::IpcReceiver<overlay_ipc::ScreenScrapingResult>>,
-  probe_u64_rcv: HashMap<StageId, overlay_ipc::ipc::IpcReceiver<u64>>,
+  probe_ssr_rcv:  HashMap<StageId, overlay_ipc::ipc::IpcReceiver<overlay_ipc::ScreenScrapingResult>>,
+  probe_u64_rcv:  HashMap<StageId, overlay_ipc::ipc::IpcReceiver<u64>>,
+  probe_bool_rcv: HashMap<StageId, overlay_ipc::ipc::IpcReceiver<bool>>,
 
   shapes:           HashMap<StageId, Vec<Vec<overlay_ipc::Shape>>>,
   curr_shape_state: HashMap<StageId, Vec<u64>>,
@@ -157,10 +158,11 @@ impl<'m> Mapper<'m> {
       discarded_actions: Vec::new(),
 
       //TODO: extract probes into a separate object?
-      probes:        HashMap::new(),
-      probe_values:  HashMap::new(),
-      probe_ssr_rcv: HashMap::new(),
-      probe_u64_rcv: HashMap::new(),
+      probes:         HashMap::new(),
+      probe_values:   HashMap::new(),
+      probe_ssr_rcv:  HashMap::new(),
+      probe_u64_rcv:  HashMap::new(),
+      probe_bool_rcv: HashMap::new(),
 
       shapes:           HashMap::new(),
       curr_shape_state: HashMap::new(),
@@ -265,6 +267,19 @@ impl<'m> Mapper<'m> {
             eprintln!("Probe {:?} requires overlay to be present", probe);
             return false;
           }
+        },
+
+        Probe::Overlay { name } => {
+
+          let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
+
+          if let Some(overlay) = &self.overlay {
+            overlay.send(overlay_ipc::OverlayCommand::AddOverlayCheck(name.clone(), sender)).unwrap();
+            self.probe_bool_rcv.insert(*id, receiver);
+          } else {
+            eprintln!("Probe {:?} requires overlay to be present", probe);
+            return false;
+          }
         }
       }
     }
@@ -305,6 +320,11 @@ impl<'m> Mapper<'m> {
         Probe::Memory { .. } => {
           if let Ok(result) = self.probe_u64_rcv[id].try_recv() {
             self.probe_values.insert(*id, ProbeValue { u64: result});
+          }
+        },
+        Probe::Overlay { .. } => {
+          if let Ok(result) = self.probe_bool_rcv[id].try_recv() {
+            self.probe_values.insert(*id, ProbeValue { bool: result});
           }
         }
       }

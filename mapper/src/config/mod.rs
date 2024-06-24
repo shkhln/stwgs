@@ -278,6 +278,11 @@ fn register_defaults(ctx: &mut eval::Context) {
     _ => Err(None)
   });
 
+  ctx.register_fun("overlay_probe", move |args, _| match args {
+    [Value::String(name)] => Ok(Value::PipelineB(overlay_probe(name))),
+    _ => Err(None)
+  });
+
   ctx.register_fun("polar", move |args, _| match args {
     [Value::Pipeline2D(p)] => Ok(Value::Pipeline2D(polar(Rc::clone(p)))),
     _ => Err(None)
