@@ -105,10 +105,8 @@ pub struct Mapper<'m> {
   discarded_actions: Vec<Action>,
 
   probes:        HashMap<StageId, Probe>,
-  probe_values:  HashMap<StageId, ProbeValue>,
-  //TODO: we should probably use a single receiver for all probes or at least refactor them to use a single return type
-  probe_ssr_rcv:  HashMap<StageId, overlay_ipc::ipc::IpcReceiver<overlay_ipc::ScreenScrapingResult>>,
-  probe_u64_rcv:  HashMap<StageId, overlay_ipc::ipc::IpcReceiver<u64>>,
+  probe_values:  HashMap<StageId, bool>,
+  //TODO: we should probably use a single receiver for all probes
   probe_bool_rcv: HashMap<StageId, overlay_ipc::ipc::IpcReceiver<bool>>,
 
   shapes:           HashMap<StageId, Vec<Vec<overlay_ipc::Shape>>>,
@@ -160,8 +158,6 @@ impl<'m> Mapper<'m> {
       //TODO: extract probes into a separate object?
       probes:         HashMap::new(),
       probe_values:   HashMap::new(),
-      probe_ssr_rcv:  HashMap::new(),
-      probe_u64_rcv:  HashMap::new(),
       probe_bool_rcv: HashMap::new(),
 
       shapes:           HashMap::new(),
@@ -209,7 +205,7 @@ impl<'m> Mapper<'m> {
 
       if let Some(probe) = &stage_description.probe {
         m.probes.insert(stage_id, probe.clone());
-        m.probe_values.insert(stage_id, ProbeValue { u64: 0 }); // ?
+        m.probe_values.insert(stage_id, false);
       }
 
       let layer_count = stage_description.shapes.len();
@@ -242,34 +238,7 @@ impl<'m> Mapper<'m> {
 
     for (id, probe) in &self.probes {
       match probe {
-
-        Probe::Screen { target } => {
-
-          let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
-
-          if let Some(overlay) = &self.overlay {
-            overlay.send(overlay_ipc::OverlayCommand::AddScreenScrapingArea(target.clone(), sender)).unwrap();
-            self.probe_ssr_rcv.insert(*id, receiver);
-          } else {
-            eprintln!("Probe {:?} requires overlay to be present", probe);
-            return false;
-          }
-        },
-
-        Probe::Memory {usize, address, offsets } => {
-
-          let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
-
-          if let Some(overlay) = &self.overlay {
-            overlay.send(overlay_ipc::OverlayCommand::AddMemoryCheck(*usize, *address, offsets.clone(), sender)).unwrap();
-            self.probe_u64_rcv.insert(*id, receiver);
-          } else {
-            eprintln!("Probe {:?} requires overlay to be present", probe);
-            return false;
-          }
-        },
-
-        Probe::Overlay { name } => {
+        Probe::External { name } => {
 
           let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
 
@@ -312,29 +281,18 @@ impl<'m> Mapper<'m> {
   fn poll_probes(&mut self) {
     for (id, probe) in &self.probes {
       match probe {
-        Probe::Screen { .. } => {
-          if let Ok(result) = self.probe_ssr_rcv[id].try_recv() {
-            self.probe_values.insert(*id, ProbeValue { ff32: (result.pixels_in_range, result.uniformity_score) });
-          }
-        },
-        Probe::Memory { .. } => {
-          if let Ok(result) = self.probe_u64_rcv[id].try_recv() {
-            self.probe_values.insert(*id, ProbeValue { u64: result});
-          }
-        },
-        Probe::Overlay { .. } => {
+        Probe::External { .. } => {
           if let Ok(result) = self.probe_bool_rcv[id].try_recv() {
-            self.probe_values.insert(*id, ProbeValue { bool: result});
+            self.probe_values.insert(*id, result);
           }
         }
       }
     }
   }
 
-  //TODO: we need to fuzz probe's on/off states instead of raw input data
   fn randomize_probe_values<R: ::rand::Rng>(&mut self, rng: &mut R) {
     for id in self.probes.keys() {
-      self.probe_values.insert(*id, ProbeValue { u64: rng.gen() });
+      self.probe_values.insert(*id, rng.gen_bool(0.5));
     }
   }
 
