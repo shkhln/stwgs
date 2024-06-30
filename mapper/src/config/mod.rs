@@ -258,11 +258,6 @@ fn register_defaults(ctx: &mut eval::Context) {
     _ => Err(None)
   });
 
-  ctx.register_fun("memory_probe", move |args, _| match args {
-    [Value::String(spec)] => Ok(Value::PipelineB(memory_probe(spec).expect("memory_probe"))),
-    _ => Err(None)
-  });
-
   ctx.register_fun("merge", move |args, _| match args {
     [Value::Pipeline1D(x), Value::Pipeline1D(y)] => Ok(Value::Pipeline2D(merge(Rc::clone(x), Rc::clone(y)))),
     _ => Err(None)
@@ -278,13 +273,13 @@ fn register_defaults(ctx: &mut eval::Context) {
     _ => Err(None)
   });
 
-  ctx.register_fun("overlay_probe", move |args, _| match args {
-    [Value::String(name)] => Ok(Value::PipelineB(overlay_probe(name))),
+  ctx.register_fun("polar", move |args, _| match args {
+    [Value::Pipeline2D(p)] => Ok(Value::Pipeline2D(polar(Rc::clone(p)))),
     _ => Err(None)
   });
 
-  ctx.register_fun("polar", move |args, _| match args {
-    [Value::Pipeline2D(p)] => Ok(Value::Pipeline2D(polar(Rc::clone(p)))),
+  ctx.register_fun("probe", move |args, _| match args {
+    [Value::String(name)] => Ok(Value::PipelineB(external_probe(name))),
     _ => Err(None)
   });
 
@@ -369,67 +364,6 @@ fn register_defaults(ctx: &mut eval::Context) {
     },
     [Value::Pipeline1D(p), Value::Pipeline1D(factor)] => {
       Ok(Value::Pipeline1D(scale_by_axis(Rc::clone(p), Rc::clone(factor))))
-    },
-    _ => Err(None)
-  });
-
-  ctx.register_fun("screen_probe", move |args, opts| match args {
-    [] => {
-      if let (
-        Some(Value::Number(x1)),
-        Some(Value::Number(y1)),
-        Some(Value::Number(x2)),
-        Some(Value::Number(y2)),
-        Some(Value::Number(min_hue)),
-        Some(Value::Number(max_hue)),
-        Some(Value::Number(min_sat)),
-        Some(Value::Number(max_sat)),
-        Some(Value::Number(min_val)),
-        Some(Value::Number(max_val)),
-        Some(Value::Number(threshold1)),
-        Some(Value::Number(threshold2))
-      ) = (
-        opts.get("x1"),
-        opts.get("y1"),
-        opts.get("x2"),
-        opts.get("y2"),
-        opts.get("min_hue")   .or(Some(&Value::Number(  0.0))),
-        opts.get("max_hue")   .or(Some(&Value::Number(360.0))),
-        opts.get("min_sat")   .or(Some(&Value::Number(  0.0))),
-        opts.get("max_sat")   .or(Some(&Value::Number(  1.0))),
-        opts.get("min_val")   .or(Some(&Value::Number(  0.0))),
-        opts.get("max_val")   .or(Some(&Value::Number(  1.0))),
-        opts.get("threshold1").or(Some(&Value::Number(  1.0))),
-        opts.get("threshold2").or(Some(&Value::Number(  1.0)))
-      ) {
-        assert!(x1 < x2);
-        assert!(y1 < y2);
-        assert!(*min_hue >= 0.0 && *min_hue <  360.0);
-        assert!(*max_hue >  0.0 && *max_hue <= 360.0);
-        assert!(*min_sat >= 0.0 && *min_sat <  1.0);
-        assert!(*max_sat >  0.0 && *max_sat <= 1.0);
-        assert!(*min_val >= 0.0 && *min_val <  1.0);
-        assert!(*max_val >  0.0 && *max_val <= 1.0);
-        assert!(*threshold1 > 0.0);
-        assert!(*threshold2 > 0.0);
-
-        let target = overlay_ipc::ScreenScrapingArea {
-          bounds:  overlay_ipc::Rect {
-            min: overlay_ipc::Point { x: overlay_ipc::Length::px(*x1), y: overlay_ipc::Length::px(*y1) },
-            max: overlay_ipc::Point { x: overlay_ipc::Length::px(*x2), y: overlay_ipc::Length::px(*y2) }
-          },
-          min_hue: *min_hue,
-          max_hue: *max_hue,
-          min_sat: *min_sat,
-          max_sat: *max_sat,
-          min_val: *min_val,
-          max_val: *max_val
-        };
-
-        Ok(Value::PipelineB(screen_probe(target, (*threshold1, *threshold2))))
-      } else {
-        Err(None)
-      }
     },
     _ => Err(None)
   });

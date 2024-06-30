@@ -30,9 +30,7 @@ pub struct WGPUSwapchainProps<'window> {
 
 pub struct OverlayState {
   pub hud_is_active: bool,
-  pub screen_scraping_targets: Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ipc::IpcSender<overlay_ipc::ScreenScrapingResult>)>,
   pub screen_scraping_targets2: HashMap<u32, (overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
-  pub memory_targets: Vec<(u64, Vec<i32>, overlay_ipc::ipc::IpcSender<u64>)>,
   pub layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
   pub layer_names: Vec<String>,
   pub mode: u64,
@@ -48,9 +46,7 @@ impl OverlayState {
   pub fn new() -> Self {
     Self {
       hud_is_active: true,
-      screen_scraping_targets: vec![],
       screen_scraping_targets2: HashMap::new(),
-      memory_targets: vec![],
       layer_checks: vec![],
       layer_names: vec![],
       mode: 0,
@@ -64,9 +60,7 @@ impl OverlayState {
 
   pub fn reset(&mut self) {
     self.hud_is_active = true;
-    self.screen_scraping_targets.clear();
     self.screen_scraping_targets2.clear();
-    self.memory_targets.clear();
     self.layer_checks.clear();
     self.layer_names.clear();
     self.mode = 0;
@@ -102,18 +96,6 @@ lazy_static! {
               let mut overlay = OVERLAY_STATE.lock().unwrap();
               overlay.hud_is_active = !overlay.hud_is_active;
             },
-            OverlayCommand::AddScreenScrapingArea(area, sender) => {
-              let mut overlay = OVERLAY_STATE.lock().unwrap();
-              overlay.screen_scraping_targets.push((area, sender));
-            },
-            OverlayCommand::AddMemoryCheck(pointer_size, address, offsets, sender) => {
-              let mut overlay = OVERLAY_STATE.lock().unwrap();
-              if core::mem::size_of::<usize>() * 8 == pointer_size as usize {
-                overlay.memory_targets.push((address, offsets, sender));
-              } else {
-                eprintln!("pointer size mismatch: {:?}", overlay_ipc::OverlayCommand::AddMemoryCheck(pointer_size, address, offsets, sender));
-              }
-            },
             OverlayCommand::AddOverlayCheck(name, sender) => {
               let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
               if let Some(idx) = *active_idx {
@@ -122,10 +104,10 @@ lazy_static! {
                   let mut overlay = OVERLAY_STATE.lock().unwrap();
                   overlay.layer_checks.push((overlay_layer_idx, sender));
                 } else {
-                  // nope
+                  panic!();
                 }
               } else {
-                // nope
+                panic!();
               }
             },
             OverlayCommand::ResetOverlay => {
@@ -585,19 +567,6 @@ unsafe extern "C" fn overlay_vk_destroy_swapchain_khr(
   destroy_swapchain_khr(device, swapchain, allocator);
 }
 
-pub unsafe fn follow_pointer_chain(address: u64, offsets: &Vec<i32>) -> usize {
-  assert_ne!(address, 0);
-  let mut p: *const u8 = address as *const u8;
-  for offset in offsets {
-    p = *(p as *const *const u8);
-    if p.is_null() {
-      return 0;
-    }
-    p = p.offset(*offset as isize);
-  }
-  *(p as *const usize)
-}
-
 unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present_info: *const ash::vk::PresentInfoKHR) -> ash::vk::Result {
 
   //println!("overlay_vk_queue_present_khr({:p}, {:p})", queue, present_info);
@@ -642,17 +611,7 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
 
     let mut overlay = OVERLAY_STATE.lock().unwrap();
 
-    let scraping_result = {
-      /*if !overlay.screen_scraping_targets.is_empty() {
-        let targets = overlay.screen_scraping_targets.iter().map(|t| t.0.clone()).collect();
-        let scraping_result = wgpu_util::compute(
-          &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
-        let _ = overlay.screen_scraping_targets[0].1.send(scraping_result.clone());
-        Some(scraping_result)
-      } else {
-        None
-      }*/
-
+    let scraping_result =
       if !overlay.screen_scraping_targets2.is_empty() {
         for (_, v) in overlay.screen_scraping_targets2.iter_mut() {
           let mut targets = vec![v.0.clone()];
@@ -663,15 +622,7 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
         overlay.screen_scraping_targets2.values().nth(0).map(|x| x.1.clone())
       } else {
         None
-      }
-    };
-
-    if !overlay.memory_targets.is_empty() {
-      for target in &overlay.memory_targets {
-        let value = follow_pointer_chain(target.0, &target.1);
-        let _ = target.2.send(value as u64);
-      }
-    }
+      };
 
     let egui_output        = gui::draw_ui(&overlay, &wgpu_props.egui_ctx, (screen_width, screen_height), scraping_result);
     let clipped_primitives = wgpu_props.egui_ctx.tessellate(egui_output.shapes, wgpu_props.egui_ctx.pixels_per_point());

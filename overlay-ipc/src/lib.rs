@@ -308,9 +308,7 @@ pub enum OverlayCommand {
   //ResetOverlay(IpcSender<OverlayEvent>),
   //ResetScreenScraping(IpcSender<ScreenScrapingResult>),
   //SetShapeEffect { stage_id: u64, mask: u64, effect: Effect } // ?
-  AddMemoryCheck(u8, u64, Vec<i32>, IpcSender<u64>),
   AddOverlayCheck(String, IpcSender<bool>),
-  AddScreenScrapingArea(ScreenScrapingArea, IpcSender<ScreenScrapingResult>),
   GetKnobs(IpcSender<Vec<Knob>>),
   MenuCommand(OverlayMenuCommand),
   RegisterKnobs(Vec<Knob>),

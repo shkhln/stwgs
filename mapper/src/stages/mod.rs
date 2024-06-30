@@ -69,19 +69,11 @@ pub fn generate_stage_id() -> StageId {
   STAGE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
 
-#[repr(C)]
-pub union ProbeValue {
-  pub u64:  u64,
-  pub f64:  f64,
-  pub ff32: (f32, f32),
-  pub bool: bool
-}
-
 pub struct Context<'a> {
   pub state:        ControllerState<'a>,
   pub time:         Timestamp, //TODO: replace with tick duration?
   pub layers:       LayerMask,
-  pub probe_values: &'a HashMap<StageId, ProbeValue>
+  pub probe_values: &'a HashMap<StageId, bool>
 }
 
 pub trait Pipeline<R: Copy> {
@@ -112,9 +104,7 @@ pub trait Pipeline<R: Copy> {
 
 #[derive(Clone, Debug)]
 pub enum Probe {
-  Screen  { target: overlay_ipc::ScreenScrapingArea },
-  Memory  { usize: u8, address: u64, offsets: Vec<i32> },
-  Overlay { name: String }
+  External { name: String }
 }
 
 #[derive(Clone, Debug)]

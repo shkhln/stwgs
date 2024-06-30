@@ -1,7 +1,7 @@
 use egui::{pos2, vec2, Align2, Color32, Pos2, Rect, Vec2};
 use overlay_ipc::{Color, Knob, Point, ScreenScrapingResult, Shape};
 
-use crate::{follow_pointer_chain, OverlayState};
+use crate::OverlayState;
 
 pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), scraping_result: Option<ScreenScrapingResult>) -> egui::FullOutput {
 
@@ -160,13 +160,6 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
             if let Some(status_text) = &overlay.status_text {
               ui.add(egui::Label::new(
                 egui::RichText::new(status_text)
-                  .background_color(Color32::BLACK)
-                  .color(Color32::WHITE)));
-            }
-
-            for target in &overlay.memory_targets {
-              ui.add(egui::Label::new(
-                egui::RichText::new(format!("mem: {:x}", unsafe { follow_pointer_chain(target.0, &target.1) }))
                   .background_color(Color32::BLACK)
                   .color(Color32::WHITE)));
             }
