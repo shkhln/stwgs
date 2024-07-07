@@ -21,10 +21,11 @@ pub struct WasmState {
 }
 
 pub struct Probe {
-  pub name:   String,
-  pub layers: Vec<String>,
-  pub test:   wasmtime::TypedFunc<(), i32>,
-  pub probe:  wasmtime::TypedFunc<(u32, u32), u64>
+  pub name:       String,
+  pub executable: String,
+  pub flags:      Vec<String>,
+  pub init:       wasmtime::TypedFunc<(u32, u32), i32>,
+  pub probe:      wasmtime::TypedFunc<(), u64>
 }
 
 impl WasmState {
@@ -57,7 +58,7 @@ impl WasmState {
         let str = read_string(&mut memory, &caller, ptr, len).unwrap();
         print!("{}", str);
       } else {
-        panic!();
+        todo!();
       }
     }).unwrap();
 
@@ -95,74 +96,107 @@ impl WasmState {
       }
     }).unwrap();
 
-    linker.func_wrap("env", "_test_screen", |id: u32, x1: f32, y1: f32, x2: f32, y2: f32,
-      min_hue: f32, max_hue: f32, min_sat: f32, max_sat: f32, min_val: f32, max_val: f32, threshold1: f32, threshold2: f32| {
+    linker.func_wrap("env", "_add_screen_target", |x1: f32, y1: f32, x2: f32, y2: f32| {
+      eprintln!("_add_screen_target: {}, {}, {}, {}", x1, y1, x2, y2);
 
       let mut overlay = OVERLAY_STATE.lock().unwrap();
-
-      if let Some((_, result)) = overlay.screen_scraping_targets2.get(&id) {
-        return if result.pixels_in_range >= threshold1 || result.uniformity_score >= threshold2 { 1 } else { 0 };
-      }
-
       let area = overlay_ipc::ScreenScrapingArea {
         bounds:  overlay_ipc::Rect {
           min: overlay_ipc::Point { x: overlay_ipc::Length::px(x1), y: overlay_ipc::Length::px(y1) },
           max: overlay_ipc::Point { x: overlay_ipc::Length::px(x2), y: overlay_ipc::Length::px(y2) }
         },
-        min_hue,
-        max_hue,
-        min_sat,
-        max_sat,
-        min_val,
-        max_val
+        min_hue:   0.0,
+        max_hue: 360.0,
+        min_sat:   0.0,
+        max_sat:   1.0,
+        min_val:   0.0,
+        max_val:   1.0
       };
 
-      overlay.screen_scraping_targets2.insert(id, (area, overlay_ipc::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
+      overlay.screen_scraping_targets.push(
+        (area, overlay_ipc::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
+      (overlay.screen_scraping_targets.len() - 1) as u32
+    }).unwrap();
 
-      0
+    linker.func_wrap("env", "_set_screen_target_option", |
+      mut caller: wasmtime::Caller<'_, ()>, idx: u32, option_ptr: i32, value_ptr: i32
+    | {
+      if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
+
+        let option = read_string_until_nul(&mut memory, &caller, option_ptr, 1000 /* ? */).unwrap();
+        let value  = read_string_until_nul(&mut memory, &caller, value_ptr,  1000 /* ? */).unwrap();
+
+        let mut overlay = OVERLAY_STATE.lock().unwrap();
+        if let Some(target) = overlay.screen_scraping_targets.get_mut(idx as usize) {
+          match option.as_str() {
+            "min_hue" => target.0.min_hue = value.parse().unwrap(),
+            "max_hue" => target.0.max_hue = value.parse().unwrap(),
+            "min_sat" => target.0.min_sat = value.parse().unwrap(),
+            "max_sat" => target.0.max_sat = value.parse().unwrap(),
+            "min_val" => target.0.min_val = value.parse().unwrap(),
+            "max_val" => target.0.max_val = value.parse().unwrap(),
+            _ => todo!()
+          };
+        } else {
+          todo!();
+        }
+      } else {
+        todo!();
+      }
+    }).unwrap();
+
+    linker.func_wrap("env", "_test_screen_target", |idx: u32, threshold1: f32, threshold2: f32| {
+      let mut overlay = OVERLAY_STATE.lock().unwrap();
+      if let Some((_, result)) = overlay.screen_scraping_targets.get(idx as usize) {
+        if result.pixels_in_range >= threshold1 || result.uniformity_score >= threshold2 { 1 } else { 0 }
+      } else {
+        todo!()
+      }
     }).unwrap();
 
     linker.func_wrap("env", "_register_probe", |
       mut caller: wasmtime::Caller<'_, ()>,
       name_ptr:   i32,
-      layers_ptr: i32,
+      exe_ptr:    i32,
+      flags_ptr:  i32,
       layers_len: i32,
-      test_idx:   u32,
+      init_idx:   u32,
       probe_idx:  u32
     | {
-      eprintln!("_register_probe: {}, {}, {}, {}, {}", name_ptr, layers_ptr, layers_len, test_idx, probe_idx);
+      eprintln!("_register_probe: {}, {}, {}, {}, {}, {}", name_ptr, exe_ptr, flags_ptr, layers_len, init_idx, probe_idx);
 
       let mut probes = REGISTERED_PROBES.lock().unwrap();
 
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
 
-        let name      = read_string_until_nul(&mut memory, &caller, name_ptr, 1000 /* ? */).unwrap();
+        let name       = read_string_until_nul(&mut memory, &caller, name_ptr, 1000 /* ? */).unwrap();
+        let executable = read_string_until_nul(&mut memory, &caller, exe_ptr,  1000 /* ? */).unwrap();
 
-        let layers    = &memory.data(&caller)[(layers_ptr as usize)..(layers_ptr as usize + 4 * layers_len as usize)];
-        let layers    = bytemuck::cast_slice::<u8, i32>(layers).iter().map(|s|
+        let flags      = &memory.data(&caller)[(flags_ptr as usize)..(flags_ptr as usize + 4 * layers_len as usize)];
+        let flags      = bytemuck::cast_slice::<u8, i32>(flags).iter().map(|s|
           read_string_until_nul(&mut memory, &caller, *s, 1000 /* ? */).unwrap()).collect::<Vec<_>>();
 
-        let table     = caller.get_export("__indirect_function_table")
+        let table      = caller.get_export("__indirect_function_table")
           .unwrap()
           .into_table()
           .unwrap();
-        let test_fun  = table.get(&mut caller, test_idx)
+        let init_fun   = table.get(&mut caller, init_idx)
           .unwrap()
           .unwrap_func()
           .unwrap()
-          .typed::<(), i32>(&caller)
+          .typed::<(u32, u32), i32>(&caller)
           .unwrap();
-        let probe_fun = table.get(&mut caller, probe_idx)
+        let probe_fun  = table.get(&mut caller, probe_idx)
           .unwrap()
           .unwrap_func()
           .unwrap()
-          .typed::<(u32, u32), u64>(&caller)
+          .typed::<(), u64>(&caller)
           .unwrap();
 
-        eprintln!("_register_probe: {}, {:?}", name, layers);
-        probes.push(Probe { name, layers, test: test_fun, probe: probe_fun });
+        eprintln!("_register_probe: {:?}, {:?}, {:?}", name, executable, flags);
+        probes.push(Probe { name, executable, flags, init: init_fun, probe: probe_fun });
       } else {
-        panic!();
+        todo!();
       }
     }).unwrap();
 
@@ -176,14 +210,6 @@ impl WasmState {
       .unwrap()
       .call(&mut store, ()).unwrap();
 
-    let probes = REGISTERED_PROBES.lock().unwrap();
-
-    if let Some(idx) = probes.iter().position(|p| p.test.call(&mut store, ()).unwrap() == 1) {
-      eprintln!("Selected probe: {}", probes[idx].name);
-      let mut active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
-      *active_idx = Some(idx);
-    }
-
     Self {
       engine,
       store,
@@ -192,11 +218,21 @@ impl WasmState {
     }
   }
 
-  pub fn run_probe(&mut self, screen_width: u32, screen_height: u32) {
+  //TODO: match executable name
+  pub fn run_init_fun(&mut self, screen_width: u32, screen_height: u32) {
+    let probes = REGISTERED_PROBES.lock().unwrap();
+    if let Some(idx) = probes.iter().position(|p| p.init.call(&mut self.store, (screen_width, screen_height)).unwrap() == 1) {
+      eprintln!("Selected probe: {}", probes[idx].name);
+      let mut active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
+      *active_idx = Some(idx);
+    }
+  }
+
+  pub fn run_probe_fun(&mut self) {
     let active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
     if let Some(idx) = *active_idx {
       let probes = REGISTERED_PROBES.lock().unwrap();
-      let mask   = probes[idx].probe.call(&mut self.store, (screen_width, screen_height)).unwrap();
+      let mask   = probes[idx].probe.call(&mut self.store, ()).unwrap();
       println!("probe value: {}", mask);
       let overlay = OVERLAY_STATE.lock().unwrap();
       for (idx, sender) in overlay.layer_checks.iter() {

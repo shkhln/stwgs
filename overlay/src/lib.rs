@@ -30,7 +30,7 @@ pub struct WGPUSwapchainProps<'window> {
 
 pub struct OverlayState {
   pub hud_is_active: bool,
-  pub screen_scraping_targets2: HashMap<u32, (overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
+  pub screen_scraping_targets: Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
   pub layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
   pub layer_names: Vec<String>,
   pub mode: u64,
@@ -38,7 +38,8 @@ pub struct OverlayState {
   pub shapes: HashMap<u64 /* stage id */, Vec<(Vec<Shape>, u64 /* visibility mask */)>>,
   pub knobs: Vec<Knob>,
   pub knob_menu_visible: bool,
-  pub knob_menu_selected_item: usize
+  pub knob_menu_selected_item: usize,
+  pub probe_initialized: bool
 }
 
 impl OverlayState {
@@ -46,7 +47,7 @@ impl OverlayState {
   pub fn new() -> Self {
     Self {
       hud_is_active: true,
-      screen_scraping_targets2: HashMap::new(),
+      screen_scraping_targets: vec![],
       layer_checks: vec![],
       layer_names: vec![],
       mode: 0,
@@ -54,13 +55,14 @@ impl OverlayState {
       shapes: HashMap::new(),
       knobs: vec![],
       knob_menu_visible: false,
-      knob_menu_selected_item: 0
+      knob_menu_selected_item: 0,
+      probe_initialized: false
     }
   }
 
   pub fn reset(&mut self) {
     self.hud_is_active = true;
-    self.screen_scraping_targets2.clear();
+    self.screen_scraping_targets.clear();
     self.layer_checks.clear();
     self.layer_names.clear();
     self.mode = 0;
@@ -100,14 +102,14 @@ lazy_static! {
               let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
               if let Some(idx) = *active_idx {
                 let probes = wasm::REGISTERED_PROBES.lock().unwrap();
-                if let Some(overlay_layer_idx) = probes[idx].layers.iter().position(|overlay_layer| *overlay_layer == name) {
+                if let Some(overlay_layer_idx) = probes[idx].flags.iter().position(|flag_name| *flag_name == name) {
                   let mut overlay = OVERLAY_STATE.lock().unwrap();
                   overlay.layer_checks.push((overlay_layer_idx, sender));
                 } else {
-                  panic!();
+                  todo!();
                 }
               } else {
-                panic!();
+                todo!();
               }
             },
             OverlayCommand::ResetOverlay => {
@@ -533,7 +535,8 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
         wgpu::TextureFormat::Bgra8Unorm /*wgpu_surface.get_preferred_format(&adapter).unwrap()*/, None, 1);
 
       let mut overlay = OVERLAY_STATE.lock().unwrap();
-      overlay.screen_scraping_targets2.clear();
+      overlay.screen_scraping_targets.clear();
+      overlay.probe_initialized = false;
 
       WGPU_SWAPCHAIN_PROPS.lock().unwrap().insert(*swapchain, WGPUSwapchainProps {
         width:    (*create_info).image_extent.width,
@@ -606,20 +609,27 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
     let frame = wgpu_util::get_frame(&wgpu_props.surface, *pi.p_image_indices);
 
     if let Some(ref mut wasm) = wasm::WASM.lock().unwrap().as_mut() {
-      wasm.run_probe(screen_width, screen_height);
+
+      if {let mut overlay = OVERLAY_STATE.lock().unwrap(); !overlay.probe_initialized} {
+        wasm.run_init_fun(screen_width, screen_height);
+        let mut overlay = OVERLAY_STATE.lock().unwrap();
+        overlay.probe_initialized = true;
+      }
+
+      wasm.run_probe_fun();
     }
 
     let mut overlay = OVERLAY_STATE.lock().unwrap();
 
     let scraping_result =
-      if !overlay.screen_scraping_targets2.is_empty() {
-        for (_, v) in overlay.screen_scraping_targets2.iter_mut() {
-          let mut targets = vec![v.0.clone()];
+      if !overlay.screen_scraping_targets.is_empty() {
+        for target in overlay.screen_scraping_targets.iter_mut() {
+          let mut targets = vec![target.0.clone()];
           let scraping_result = wgpu_util::compute(
             &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
-          *v = (targets.remove(0), scraping_result);
+          *target = (targets.remove(0), scraping_result);
         }
-        overlay.screen_scraping_targets2.values().nth(0).map(|x| x.1.clone())
+        overlay.screen_scraping_targets.first().map(|x| x.1.clone())
       } else {
         None
       };
