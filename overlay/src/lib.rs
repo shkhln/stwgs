@@ -39,7 +39,9 @@ pub struct OverlayState {
   pub knobs: Vec<Knob>,
   pub knob_menu_visible: bool,
   pub knob_menu_selected_item: usize,
-  pub probe_initialized: bool
+  pub probe_initialized: bool,
+  pub probe_state_sender: Option<overlay_ipc::ipc::IpcSender<(u64, Option<Vec<String>>)>>,
+  pub probe_flag_names_sent: bool
 }
 
 impl OverlayState {
@@ -56,7 +58,9 @@ impl OverlayState {
       knobs: vec![],
       knob_menu_visible: false,
       knob_menu_selected_item: 0,
-      probe_initialized: false
+      probe_initialized: false,
+      probe_state_sender: None,
+      probe_flag_names_sent: false
     }
   }
 
@@ -69,6 +73,11 @@ impl OverlayState {
     self.status_text = None;
     self.shapes.clear();
     self.knobs.clear();
+    self.knob_menu_visible = false;
+    self.knob_menu_selected_item = 0;
+    self.probe_initialized = false;
+    self.probe_state_sender = None;
+    self.probe_flag_names_sent = false;
   }
 }
 
@@ -98,20 +107,6 @@ lazy_static! {
               let mut overlay = OVERLAY_STATE.lock().unwrap();
               overlay.hud_is_active = !overlay.hud_is_active;
             },
-            OverlayCommand::AddOverlayCheck(name, sender) => {
-              let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
-              if let Some(idx) = *active_idx {
-                let probes = wasm::REGISTERED_PROBES.lock().unwrap();
-                if let Some(overlay_layer_idx) = probes[idx].flags.iter().position(|flag_name| *flag_name == name) {
-                  let mut overlay = OVERLAY_STATE.lock().unwrap();
-                  overlay.layer_checks.push((overlay_layer_idx, sender));
-                } else {
-                  todo!();
-                }
-              } else {
-                todo!();
-              }
-            },
             OverlayCommand::ResetOverlay => {
               let mut overlay = OVERLAY_STATE.lock().unwrap();
               overlay.reset();
@@ -127,6 +122,16 @@ lazy_static! {
             OverlayCommand::SetStatusText(str) => {
               let mut overlay = OVERLAY_STATE.lock().unwrap();
               overlay.status_text = str;
+            },
+            OverlayCommand::SubscribeToProbeStateChanges(sender) => {
+              let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
+              if let Some(idx) = *active_idx {
+                let mut overlay = OVERLAY_STATE.lock().unwrap();
+                overlay.probe_state_sender = Some(sender);
+                overlay.probe_flag_names_sent = false;
+              } else {
+                todo!();
+              }
             },
             OverlayCommand::RegisterShapes { stage_id, shapes } => {
               let mut overlay = OVERLAY_STATE.lock().unwrap();
@@ -555,6 +560,8 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
 
     // ipc init
     drop(OVERLAY_COMMAND_THREAD.lock().unwrap());
+
+    drop(wasm::WASM_RELOAD_THREAD.lock().unwrap());
   }
   err
 }
@@ -611,12 +618,29 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
     if let Some(ref mut wasm) = wasm::WASM.lock().unwrap().as_mut() {
 
       if {let mut overlay = OVERLAY_STATE.lock().unwrap(); !overlay.probe_initialized} {
-        wasm.run_init_fun(screen_width, screen_height);
+        wasm.run_probe_init_fun(screen_width, screen_height);
         let mut overlay = OVERLAY_STATE.lock().unwrap();
         overlay.probe_initialized = true;
       }
 
-      wasm.run_probe_fun();
+      //TODO: only send the changes
+      if let Some(flags) = wasm.run_probe_fun() {
+        let mut overlay = OVERLAY_STATE.lock().unwrap();
+        if let Some(sender) = &overlay.probe_state_sender {
+          if overlay.probe_flag_names_sent {
+            let _ = sender.send((flags, None));
+          } else {
+            let active_idx = wasm::ACTIVE_PROBE_IDX.lock().unwrap();
+            if let Some(idx) = *active_idx {
+              let probes = wasm::REGISTERED_PROBES.lock().unwrap();
+              let _ = sender.send((flags, Some(probes[idx].flag_names.clone())));
+              overlay.probe_flag_names_sent = true;
+            } else {
+              panic!()
+            }
+          }
+        }
+      }
     }
 
     let mut overlay = OVERLAY_STATE.lock().unwrap();

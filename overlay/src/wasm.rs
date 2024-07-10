@@ -11,6 +11,38 @@ lazy_static! {
 
   pub static ref REGISTERED_PROBES: Mutex<Vec<Probe>>    = Mutex::new(Vec::new());
   pub static ref ACTIVE_PROBE_IDX:  Mutex<Option<usize>> = Mutex::new(None);
+
+  pub static ref WASM_RELOAD_THREAD: Mutex<()> = Mutex::new({
+    if let Some(module_path) = std::env::var("STWGS_OVERLAY_WASM_MODULE").ok() {
+      let mut old_timestamp = std::fs::metadata(&module_path).unwrap().modified().unwrap();
+      std::thread::spawn(move || {
+        loop {
+          std::thread::sleep(std::time::Duration::from_secs(1));
+          let cur_timestamp = std::fs::metadata(&module_path).unwrap().modified().unwrap();
+          if cur_timestamp != old_timestamp {
+            {
+              let mut probes     = REGISTERED_PROBES.lock().unwrap();
+              probes.clear();
+              let mut active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
+              *active_idx = None;
+            }
+
+            {
+              let mut wasm_state = WASM.lock().unwrap();
+              *wasm_state = Some(WasmState::from_file(&module_path));
+            }
+
+            let mut overlay = OVERLAY_STATE.lock().unwrap();
+            overlay.screen_scraping_targets.clear();
+            overlay.probe_initialized = false;
+            overlay.probe_flag_names_sent = false;
+
+            old_timestamp = cur_timestamp;
+          }
+        }
+      });
+    }
+  });
 }
 
 pub struct WasmState {
@@ -23,7 +55,8 @@ pub struct WasmState {
 pub struct Probe {
   pub name:       String,
   pub executable: String,
-  pub flags:      Vec<String>,
+  pub flag_names: Vec<String>,
+  pub flags:      u64,
   pub init:       wasmtime::TypedFunc<(u32, u32), i32>,
   pub probe:      wasmtime::TypedFunc<(), u64>
 }
@@ -56,7 +89,7 @@ impl WasmState {
     linker.func_wrap("env", "print", |mut caller: wasmtime::Caller<'_, ()>, ptr: i32, len: i32| {
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
         let str = read_string(&mut memory, &caller, ptr, len).unwrap();
-        print!("{}", str);
+        eprint!("{}", str);
       } else {
         todo!();
       }
@@ -156,14 +189,14 @@ impl WasmState {
 
     linker.func_wrap("env", "_register_probe", |
       mut caller: wasmtime::Caller<'_, ()>,
-      name_ptr:   i32,
-      exe_ptr:    i32,
-      flags_ptr:  i32,
-      layers_len: i32,
-      init_idx:   u32,
-      probe_idx:  u32
+      name_ptr:       i32,
+      exe_ptr:        i32,
+      flag_names_ptr: i32,
+      flag_names_len: i32,
+      init_idx:       u32,
+      probe_idx:      u32
     | {
-      eprintln!("_register_probe: {}, {}, {}, {}, {}, {}", name_ptr, exe_ptr, flags_ptr, layers_len, init_idx, probe_idx);
+      eprintln!("_register_probe: {}, {}, {}, {}, {}, {}", name_ptr, exe_ptr, flag_names_ptr, flag_names_len, init_idx, probe_idx);
 
       let mut probes = REGISTERED_PROBES.lock().unwrap();
 
@@ -172,8 +205,8 @@ impl WasmState {
         let name       = read_string_until_nul(&mut memory, &caller, name_ptr, 1000 /* ? */).unwrap();
         let executable = read_string_until_nul(&mut memory, &caller, exe_ptr,  1000 /* ? */).unwrap();
 
-        let flags      = &memory.data(&caller)[(flags_ptr as usize)..(flags_ptr as usize + 4 * layers_len as usize)];
-        let flags      = bytemuck::cast_slice::<u8, i32>(flags).iter().map(|s|
+        let flag_names = &memory.data(&caller)[(flag_names_ptr as usize)..(flag_names_ptr as usize + 4 * flag_names_len as usize)];
+        let flag_names = bytemuck::cast_slice::<u8, i32>(flag_names).iter().map(|s|
           read_string_until_nul(&mut memory, &caller, *s, 1000 /* ? */).unwrap()).collect::<Vec<_>>();
 
         let table      = caller.get_export("__indirect_function_table")
@@ -193,8 +226,8 @@ impl WasmState {
           .typed::<(), u64>(&caller)
           .unwrap();
 
-        eprintln!("_register_probe: {:?}, {:?}, {:?}", name, executable, flags);
-        probes.push(Probe { name, executable, flags, init: init_fun, probe: probe_fun });
+        eprintln!("_register_probe: {:?}, {:?}, {:?}", name, executable, flag_names);
+        probes.push(Probe { name, executable, flag_names, flags: 0, init: init_fun, probe: probe_fun });
       } else {
         todo!();
       }
@@ -219,7 +252,7 @@ impl WasmState {
   }
 
   //TODO: match executable name
-  pub fn run_init_fun(&mut self, screen_width: u32, screen_height: u32) {
+  pub fn run_probe_init_fun(&mut self, screen_width: u32, screen_height: u32) {
     let probes = REGISTERED_PROBES.lock().unwrap();
     if let Some(idx) = probes.iter().position(|p| p.init.call(&mut self.store, (screen_width, screen_height)).unwrap() == 1) {
       eprintln!("Selected probe: {}", probes[idx].name);
@@ -228,16 +261,15 @@ impl WasmState {
     }
   }
 
-  pub fn run_probe_fun(&mut self) {
+  pub fn run_probe_fun(&mut self) -> Option<u64> {
     let active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
     if let Some(idx) = *active_idx {
-      let probes = REGISTERED_PROBES.lock().unwrap();
-      let mask   = probes[idx].probe.call(&mut self.store, ()).unwrap();
-      println!("probe value: {}", mask);
-      let overlay = OVERLAY_STATE.lock().unwrap();
-      for (idx, sender) in overlay.layer_checks.iter() {
-        let _ = sender.send(mask & (1 << idx) as u64 != 0);
-      }
+      let mut probes = REGISTERED_PROBES.lock().unwrap();
+      let flags = probes[idx].probe.call(&mut self.store, ()).unwrap();
+      probes[idx].flags = flags;
+      Some(flags)
+    } else {
+      None
     }
   }
 }

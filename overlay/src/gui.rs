@@ -151,6 +151,8 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
         }
 
         if overlay.hud_is_active {
+
+          // layers
           let rect = Rect::from_min_size(
             pos2(20.0, screen_height as f32 / 3.0),
             vec2(screen_width as f32, screen_height as f32)
@@ -160,7 +162,7 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
             if let Some(status_text) = &overlay.status_text {
               ui.add(egui::Label::new(
                 egui::RichText::new(status_text)
-                  .background_color(Color32::BLACK)
+                  .background_color(Color32::from_black_alpha((255.0 * 0.5) as u8))
                   .color(Color32::WHITE)));
             }
 
@@ -169,8 +171,28 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
               let active = overlay.mode & (1 << i) != 0;
               ui.add(egui::Label::new(
                 egui::RichText::new(if active { format!("+ {}", name) } else { format!("− {}", name) })
-                  .background_color(Color32::BLACK)
+                  .background_color(Color32::from_black_alpha((255.0 * 0.5) as u8))
                   .color(Color32::WHITE)));
+            }
+          });
+
+          // probe flags
+          let rect = Rect::from_min_size(
+            pos2(screen_width as f32 * 0.8, screen_height as f32 / 3.0),
+            vec2(screen_width as f32, screen_height as f32)
+          );
+          ui.allocate_ui_at_rect(rect, |ui| {
+            let active_idx = crate::wasm::ACTIVE_PROBE_IDX.lock().unwrap();
+            if let Some(idx) = *active_idx {
+              let probes = crate::wasm::REGISTERED_PROBES.lock().unwrap();
+              for i in 0..probes[idx].flag_names.len() {
+                let name   = &probes[idx].flag_names[i];
+                let active = probes[idx].flags & (1 << i) != 0;
+                ui.add(egui::Label::new(
+                  egui::RichText::new(if active { format!("+ {}", name) } else { format!("− {}", name) })
+                    .background_color(Color32::from_black_alpha((255.0 * 0.5) as u8))
+                    .color(Color32::WHITE)));
+              }
             }
           });
 

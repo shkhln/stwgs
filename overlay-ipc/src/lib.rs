@@ -308,12 +308,12 @@ pub enum OverlayCommand {
   //ResetOverlay(IpcSender<OverlayEvent>),
   //ResetScreenScraping(IpcSender<ScreenScrapingResult>),
   //SetShapeEffect { stage_id: u64, mask: u64, effect: Effect } // ?
-  AddOverlayCheck(String, IpcSender<bool>),
   GetKnobs(IpcSender<Vec<Knob>>),
   MenuCommand(OverlayMenuCommand),
   RegisterKnobs(Vec<Knob>),
   RegisterShapes { stage_id: u64, shapes: Vec<Vec<Shape>> },
   ResetOverlay,
+  SubscribeToProbeStateChanges(IpcSender<(u64, Option<Vec<String>>)>),
   SetLayerNames(Vec<String>),
   SetMode(u64),
   SetStatusText(Option<String>),

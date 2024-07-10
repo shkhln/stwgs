@@ -104,10 +104,10 @@ pub struct Mapper<'m> {
   actions:           Vec<Action>,
   discarded_actions: Vec<Action>,
 
-  probes:        HashMap<StageId, Probe>,
-  probe_values:  HashMap<StageId, bool>,
-  //TODO: we should probably use a single receiver for all probes
-  probe_bool_rcv: HashMap<StageId, overlay_ipc::ipc::IpcReceiver<bool>>,
+  probes:               HashMap<StageId, Probe>,
+  probe_values:         HashMap<StageId, bool>,
+  probe_flags_mapping:  HashMap<StageId, u8>,
+  probe_flags_receiver: Option<overlay_ipc::ipc::IpcReceiver<(u64, Option<Vec<String>>)>>,
 
   shapes:           HashMap<StageId, Vec<Vec<overlay_ipc::Shape>>>,
   curr_shape_state: HashMap<StageId, Vec<u64>>,
@@ -156,9 +156,10 @@ impl<'m> Mapper<'m> {
       discarded_actions: Vec::new(),
 
       //TODO: extract probes into a separate object?
-      probes:         HashMap::new(),
-      probe_values:   HashMap::new(),
-      probe_bool_rcv: HashMap::new(),
+      probes:               HashMap::new(),
+      probe_values:         HashMap::new(),
+      probe_flags_mapping:  HashMap::new(),
+      probe_flags_receiver: None,
 
       shapes:           HashMap::new(),
       curr_shape_state: HashMap::new(),
@@ -236,20 +237,14 @@ impl<'m> Mapper<'m> {
       overlay.send(overlay_ipc::OverlayCommand::ResetOverlay).unwrap();
     }
 
-    for (id, probe) in &self.probes {
-      match probe {
-        Probe::External { name } => {
-
-          let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
-
-          if let Some(overlay) = &self.overlay {
-            overlay.send(overlay_ipc::OverlayCommand::AddOverlayCheck(name.clone(), sender)).unwrap();
-            self.probe_bool_rcv.insert(*id, receiver);
-          } else {
-            eprintln!("Probe {:?} requires overlay to be present", probe);
-            return false;
-          }
-        }
+    if !self.probes.is_empty() {
+      let (sender, receiver) = overlay_ipc::ipc::channel().unwrap();
+      if let Some(overlay) = &self.overlay {
+        overlay.send(overlay_ipc::OverlayCommand::SubscribeToProbeStateChanges(sender)).unwrap();
+        self.probe_flags_receiver = Some(receiver);
+      } else {
+        eprintln!("Probe {:?} requires overlay to be present", self.probes.values().nth(0).unwrap());
+        return false;
       }
     }
 
@@ -279,12 +274,34 @@ impl<'m> Mapper<'m> {
   }
 
   fn poll_probes(&mut self) {
-    for (id, probe) in &self.probes {
-      match probe {
-        Probe::External { .. } => {
-          if let Ok(result) = self.probe_bool_rcv[id].try_recv() {
-            self.probe_values.insert(*id, result);
+    if let Some(receiver) = &self.probe_flags_receiver {
+      loop {
+        if let Ok((flags, probe_flag_names)) = receiver.try_recv() {
+
+          if let Some(probe_flag_names) = probe_flag_names {
+            self.probe_flags_mapping.clear();
+            for (id, probe) in &self.probes {
+              match probe {
+                Probe::External { name } => {
+                  if let Some(idx) = probe_flag_names.iter().position(|flag_name| flag_name == name) {
+                    self.probe_flags_mapping.insert(*id, idx as u8);
+                  }
+                }
+              }
+            }
           }
+
+          for (id, probe) in &self.probes {
+            match probe {
+              Probe::External { .. } => {
+                if let Some(idx) = self.probe_flags_mapping.get(id) {
+                  self.probe_values.insert(*id, flags & (1 << idx) as u64 != 0);
+                }
+              }
+            }
+          }
+        } else {
+          break;
         }
       }
     }
@@ -514,6 +531,10 @@ impl<'m> Mapper<'m> {
       if !state.buttons.steam {
         break;
       }
+    }
+
+    if let Some(overlay) = self.overlay {
+      overlay.send(overlay_ipc::OverlayCommand::SetMode(self.curr_layer_mask.0 as u64)).unwrap();
     }
 
     loop {
