@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::sync::Mutex;
 
@@ -251,10 +252,59 @@ impl WasmState {
     }
   }
 
-  //TODO: match executable name
   pub fn run_probe_init_fun(&mut self, screen_width: u32, screen_height: u32) {
+
+    let executable_path = std::env::current_exe().unwrap();
+    let executable_name = executable_path.file_name().unwrap().to_str().unwrap();
+    eprintln!("executable: {:?}", executable_name);
+
+    let win_executable_name = if executable_name == "wine" || executable_name == "wine64" {
+      vmmap().iter().find(|e| e.start == 0x400000)
+        .and_then(|e| e.path.as_ref().and_then(|p| p.rsplit_once('/').map(|x| x.1.to_string())))
+        .map(|name| name.to_lowercase())
+    } else {
+      None
+    };
+    eprintln!("win executable: {:?}", win_executable_name);
+
+    let mut alternative_names: HashMap<String, Vec<String>> = HashMap::new();
+
+    if let Some(var) = std::env::var("STWGS_OVERLAY_EXE_MAP").ok() {
+      for part in var.split(',') {
+        if let Some((name1, name2)) = part.split_once('=') {
+          alternative_names.entry(name1.to_string()).or_insert(vec![]).push(name2.to_string());
+          alternative_names.entry(name2.to_string()).or_insert(vec![]).push(name1.to_string());
+        }
+      }
+    }
+
     let probes = REGISTERED_PROBES.lock().unwrap();
-    if let Some(idx) = probes.iter().position(|p| p.init.call(&mut self.store, (screen_width, screen_height)).unwrap() == 1) {
+
+    let idx = probes.iter()
+      .position(|p| {
+        let same_exe_name = if let Some(win_executable_name) = &win_executable_name {
+          p.executable.to_lowercase() == *win_executable_name ||
+            alternative_names.get(&p.executable)
+              .map(|names| names.iter().any(|name| name.to_lowercase() == *win_executable_name))
+              .unwrap_or(false)
+        } else {
+          p.executable == executable_name ||
+            alternative_names.get(&p.executable)
+              .map(|names| names.iter().any(|name| name.to_lowercase() == *executable_name))
+              .unwrap_or(false)
+        };
+        if same_exe_name {
+          {
+            let mut overlay = OVERLAY_STATE.lock().unwrap();
+            overlay.screen_scraping_targets.clear();
+          }
+          p.init.call(&mut self.store, (screen_width, screen_height)).unwrap() == 1
+        } else {
+          false
+        }
+      });
+
+    if let Some(idx) = idx {
       eprintln!("Selected probe: {}", probes[idx].name);
       let mut active_idx = ACTIVE_PROBE_IDX.lock().unwrap();
       *active_idx = Some(idx);
@@ -282,14 +332,13 @@ struct VmMapEntry {
   pub path:  Option<String>
 }
 
-lazy_static! {
+/*lazy_static! {
   static ref VM_MAP: Mutex<Vec<VmMapEntry>> = Mutex::new(Vec::new());
-}
+}*/
 
 #[cfg(target_os = "freebsd")]
-fn populate_vmmap() {
-
-  let mut vmmap = VM_MAP.lock().unwrap();
+fn vmmap() -> Vec<VmMapEntry> {
+  let mut result = vec![];
 
   unsafe {
     let procstat = libc::procstat_open_sysctl();
@@ -306,8 +355,6 @@ fn populate_vmmap() {
     //println!("Found {} entries ({:p})\n", count, entries);
     assert!(!entries.is_null());
 
-    vmmap.clear();
-
     for i in 0..count {
       let entry = entries.offset(i as isize);
       let path = CStr::from_bytes_until_nul(
@@ -315,7 +362,7 @@ fn populate_vmmap() {
         .ok().filter(|s| !s.is_empty()).map(|s| s.to_string_lossy());
       //println!("{:x}..{:x} -> {:?}", (*entry).kve_start, (*entry).kve_end, path);
 
-      vmmap.push(VmMapEntry {
+      result.push(VmMapEntry {
         start: (*entry).kve_start,
         end:   (*entry).kve_end,
         prot:  (*entry).kve_protection,
@@ -327,4 +374,6 @@ fn populate_vmmap() {
     libc::procstat_freeprocs(procstat, procs);
     libc::procstat_close(procstat);
   };
+
+  result
 }
