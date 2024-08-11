@@ -8,10 +8,10 @@ edition = "2021"
 clap         = { version = "4.5.7", features = ["derive"] }
 evdev        = { version = "0.12.2", optional = true }
 lazy_static  = "1.4.0"
-libusb       = "0.3"
 pest         = "2.7.10"
 pest_derive  = "2.7.10"
 rand         = "0.8.5"
+rusb         = "0.9.4"
 sdl2         = { version = "0.36.0", features = ["hidapi"], optional = true }
 serde_json   = "1.0.117"
 strum        = "0.26.2"

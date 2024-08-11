@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use libusb::{Direction, Recipient, RequestType};
+use rusb::{Direction, Recipient, RequestType, UsbContext};
 
 use crate::controllers::*;
 
@@ -14,7 +14,7 @@ struct SteamController {
   serial:      Option<String>
 }
 
-fn libusb_err_to_string(err: libusb::Error) -> String {
+fn libusb_err_to_string(err: rusb::Error) -> String {
   err.to_string()
 }
 
@@ -24,7 +24,7 @@ enum ControllerType {
   Wireless
 }
 
-fn get_controller_type(device: &libusb::Device) -> Result<Option<ControllerType>, String> {
+fn get_controller_type<T: UsbContext>(device: &rusb::Device<T>) -> Result<Option<ControllerType>, String> {
   let desc = device.device_descriptor().map_err(libusb_err_to_string)?;
   match (desc.vendor_id(), desc.product_id()) {
     (0x28de, 0x1102) => Ok(Some(ControllerType::Wired)),
@@ -33,14 +33,14 @@ fn get_controller_type(device: &libusb::Device) -> Result<Option<ControllerType>
   }
 }
 
-fn is_controller(device: &libusb::Device) -> bool {
+fn is_controller<T: UsbContext>(device: &rusb::Device<T>) -> bool {
   matches!(get_controller_type(device), Ok(Some(_)))
 }
 
 pub fn available_controllers() -> Result<Vec<Box<dyn Controller>>, String> {
   let mut controllers: Vec<SteamController> = vec![];
 
-  let context = libusb::Context::new().map_err(libusb_err_to_string)?;
+  let context = rusb::Context::new().map_err(libusb_err_to_string)?;
   let devices = context.devices().map_err(libusb_err_to_string)?;
 
   for device in devices.iter() {
@@ -81,17 +81,17 @@ pub fn available_controllers() -> Result<Vec<Box<dyn Controller>>, String> {
   Ok(controllers.into_iter().map(|controller| Box::new(controller) as Box<dyn Controller>).collect())
 }
 
-fn disable_lizard_mode(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
-  let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+fn disable_lizard_mode<T: UsbContext>(handle: &rusb::DeviceHandle<T>, index: u16) -> Result<(), String> {
+  let request_type = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
   let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0x81], Duration::new(0, 0)).map_err(libusb_err_to_string)?;
   assert_eq!(transferred, 1);
-  let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+  let request_type = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
   let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0x88], Duration::new(0, 0)).map_err(libusb_err_to_string)?;
   assert_eq!(transferred, 1);
   Ok(())
 }
 
-/*fn enable_lizard_mode(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
+/*fn enable_lizard_mode(handle: &rusb::DeviceHandle, index: u16) -> Result<(), String> {
 
   let transferred = handle.write_control(0x21, 0x09, 0x0300, index, &[0x85], Duration::new(0, 0)).unwrap();
   assert_eq!(transferred, 1);
@@ -102,15 +102,15 @@ fn disable_lizard_mode(handle: &libusb::DeviceHandle, index: u16) -> Result<(), 
   Ok(())
 }*/
 
-fn get_serial_number(handle: &libusb::DeviceHandle, index: u16) -> Result<Option<String>, String> {
-  let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+fn get_serial_number<T: UsbContext>(handle: &rusb::DeviceHandle<T>, index: u16) -> Result<Option<String>, String> {
+  let request_type = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
   let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &[0xae, 0x1, 0x01], Duration::new(0, 0))
     .map_err(libusb_err_to_string)?;
   assert_eq!(transferred, 3);
 
   let mut buffer = [0_u8; 64];
 
-  let request_type = libusb::request_type(Direction::In, RequestType::Class, Recipient::Interface);
+  let request_type = rusb::request_type(Direction::In, RequestType::Class, Recipient::Interface);
   let transferred  = handle.read_control(request_type, 0x01, 0x0300, index, &mut buffer, Duration::new(0, 0))
     .map_err(libusb_err_to_string)?;
   assert_eq!(transferred, buffer.len());
@@ -138,7 +138,7 @@ const SET_WIRELESS_PACKET_VER_2: [u8; 3] = [0x31, 0x02, 0x00];
 const UNSET_LPAD_MODE:           [u8; 3] = [0x07, 0x07, 0x00];
 const UNSET_RPAD_MODE:           [u8; 3] = [0x08, 0x07, 0x00];
 
-fn update_settings(handle: &libusb::DeviceHandle, index: u16, settings: &[[u8; 3]]) -> Result<(), String> {
+fn update_settings<T: UsbContext>(handle: &rusb::DeviceHandle<T>, index: u16, settings: &[[u8; 3]]) -> Result<(), String> {
   let mut buffer = [0_u8; 64];
   assert!(settings.len() <= (buffer.len() - 2) / 3);
   buffer[0] = 0x87;
@@ -148,13 +148,13 @@ fn update_settings(handle: &libusb::DeviceHandle, index: u16, settings: &[[u8; 3
     buffer[2 + i * 3 + 1] = settings[1];
     buffer[2 + i * 3 + 2] = settings[2];
   }
-  let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+  let request_type = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
   let transferred  = handle.write_control(request_type, 0x09, 0x0300, index, &buffer, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
   assert_eq!(transferred, buffer.len());
   Ok(())
 }
 
-fn prepare_controller(handle: &libusb::DeviceHandle, index: u16) -> Result<(), String> {
+fn prepare_controller<T: UsbContext>(handle: &rusb::DeviceHandle<T>, index: u16) -> Result<(), String> {
   disable_lizard_mode(handle, index)?;
   update_settings(handle, index, &[
     SET_WIRELESS_PACKET_VER_2,
@@ -181,7 +181,7 @@ impl Controller for SteamController {
   }
 
   fn run_polling_loop(&self, sender: Sender<ControllerState>, receiver: Option<Receiver<ControllerCommand>>) -> Result<(), String> {
-    let context = libusb::Context::new().map_err(libusb_err_to_string)?;
+    let context = rusb::Context::new().map_err(libusb_err_to_string)?;
     let devices = context.devices().map_err(libusb_err_to_string)?;
 
     let device = devices
@@ -350,7 +350,7 @@ impl Controller for SteamController {
                   (count     / 0xff) as u8
                 ];
 
-                let request_type = libusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
+                let request_type = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface);
                 let transferred  = handle.write_control(request_type, 0x09, 0x0300, 2, &buffer, Duration::new(0, 0)).map_err(libusb_err_to_string)?;
                 assert_eq!(transferred, buffer.len());
               }
