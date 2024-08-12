@@ -382,11 +382,11 @@ pub fn get_frame(surface: &wgpu::Surface, image_index: u32) -> wgpu::SurfaceText
   surface.get_current_texture().unwrap()
 }
 
-pub fn prepare_compute_pipeline(device: &wgpu::Device) -> wgpu::ComputePipeline {
+pub fn prepare_compute_pipeline(source: &'static str, device: &wgpu::Device) -> wgpu::ComputePipeline {
 
   let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
     label: None,
-    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("pixelcount.wgsl"))),
+    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(source))
   });
 
   let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -439,7 +439,18 @@ pub fn prepare_compute_pipeline(device: &wgpu::Device) -> wgpu::ComputePipeline 
   })
 }
 
-//TODO: create buffers beforehand
+use std::collections::HashMap;
+
+struct Buffers {
+  targets_buffer:  wgpu::Buffer,
+  results_buffer:  wgpu::Buffer,
+  results_buffer2: wgpu::Buffer
+}
+
+lazy_static! {
+  static ref BFERS: Mutex<HashMap<wgpu::Id<wgpu::Device>, Buffers>> = Mutex::new(HashMap::new());
+}
+
 pub fn compute(
   frame:    &wgpu::SurfaceTexture,
   device:   &wgpu::Device,
@@ -465,26 +476,33 @@ pub fn compute(
       array_layer_count: Some(1) // ?
     });
 
-  let targets_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-    label: None,
-    size: 1000, //TODO: how large should that buffer be?
-    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-    mapped_at_creation: false // ?
-  });
+  let mut bfers = BFERS.lock().unwrap();
 
-  let results_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-    label: None,
-    size: 100, // ?
-    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    mapped_at_creation: false // ?
-  });
+  if !bfers.contains_key(&device.global_id()) {
+    let b = Buffers {
+      targets_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 1000, //TODO: how large should that buffer be?
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false // ?
+      }),
+      results_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 100, // ?
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false // ?
+      }),
+      results_buffer2: device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 100, // ?
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false // ?
+      })
+    };
+    bfers.insert(device.global_id(), b);
+  }
 
-  let results_buffer2 = device.create_buffer(&wgpu::BufferDescriptor {
-    label: None,
-    size: 100, // ?
-    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-    mapped_at_creation: false // ?
-  });
+  let buffers = bfers.get(&device.global_id()).unwrap();
 
   let mut offset = 0;
   for target in targets {
@@ -495,7 +513,7 @@ pub fn compute(
       target.bounds.max.y.to_px(screen_width, screen_height) as u32
     ];
     let bytes = bytemuck::cast_slice::<u32, u8>(values);
-    queue.write_buffer(&targets_buffer, offset as u64, bytes);
+    queue.write_buffer(&buffers.targets_buffer, offset as u64, bytes);
     offset += bytes.len();
 
     let values = &[
@@ -507,7 +525,7 @@ pub fn compute(
       target.max_val,
     ];
     let bytes = bytemuck::cast_slice::<f32, u8>(values);
-    queue.write_buffer(&targets_buffer, offset as u64, bytes);
+    queue.write_buffer(&buffers.targets_buffer, offset as u64, bytes);
     offset += bytes.len();
   }
 
@@ -522,11 +540,11 @@ pub fn compute(
       },
       wgpu::BindGroupEntry {
         binding: 1,
-        resource: targets_buffer.as_entire_binding()
+        resource: buffers.targets_buffer.as_entire_binding()
       },
       wgpu::BindGroupEntry {
         binding: 2,
-        resource: results_buffer.as_entire_binding()
+        resource: buffers.results_buffer.as_entire_binding()
       }
     ]
   });
@@ -540,17 +558,17 @@ pub fn compute(
     pass.dispatch_workgroups(1, 1, 1); // ?
   }
 
-  encoder.copy_buffer_to_buffer(&results_buffer, 0, &results_buffer2, 0, 100);
+  encoder.copy_buffer_to_buffer(&buffers.results_buffer, 0, &buffers.results_buffer2, 0, 100);
 
   queue.submit(Some(encoder.finish()));
 
-  let buffer_slice = results_buffer2.slice(..);
+  let buffer_slice = buffers.results_buffer2.slice(..);
   buffer_slice.map_async(wgpu::MapMode::Read, |_| ());
 
   device.poll(wgpu::Maintain::Wait);
 
   let result = bytemuck::cast_slice::<u8, f32>(&buffer_slice.get_mapped_range()).to_owned();
-  results_buffer2.unmap();
+  buffers.results_buffer2.unmap();
 
   overlay_ipc::ScreenScrapingResult { pixels_in_range: result[0], uniformity_score: result[1] }
 }

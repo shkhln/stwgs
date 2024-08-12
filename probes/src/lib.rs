@@ -12,7 +12,7 @@ extern "C" {
   fn _register_probe(name: *const u8, executable: *const u8, flag_names: *const *const u8, flag_names_len: usize,
     init: extern "C" fn(u32, u32) -> i32 /* bool */, probe: extern "C" fn() -> u64);
 
-  fn _add_screen_target(x1: f32, y1: f32, x2: f32, y2: f32) -> u32;
+  fn _add_screen_target(algo: *const u8, x1: f32, y1: f32, x2: f32, y2: f32) -> u32;
   fn _set_screen_target_option(id: u32, option: *const u8, value: *const u8) -> ();
   fn _test_screen_target(id: u32, threshold1: f32, threshold2: f32) -> i32 /* bool */;
 
@@ -30,8 +30,9 @@ fn register_probe(name: &str, executable: &str, flag_names: &[&str], test: exter
   }
 }
 
-fn add_screen_target(x1: f32, y1: f32, x2: f32, y2: f32) -> u32 {
-  unsafe { _add_screen_target(x1, y1, x2, y2) }
+fn add_screen_target(algo: &str, x1: f32, y1: f32, x2: f32, y2: f32) -> u32 {
+  let algo = CString::new(algo).unwrap();
+  unsafe { _add_screen_target(algo.as_ptr() as *const u8, x1, y1, x2, y2) }
 }
 
 fn set_screen_target_option(id: u32, option: &str, value: &str) {
@@ -48,6 +49,30 @@ fn peek_mem32(address: u32) -> u32 {
   unsafe { _peek_mem32(address) }
 }
 
+extern "C" fn dx_init(_screen_width: u32, screen_height: u32) -> i32 {
+
+  // should point at compass
+  let idx = add_screen_target("vlinecount",
+    screen_height as f32 * 0.024, screen_height as f32 * 0.218,
+    screen_height as f32 * 0.070, screen_height as f32 * 0.224);
+  assert_eq!(idx, 0);
+  set_screen_target_option(idx, "min_sat", "0.0");
+  set_screen_target_option(idx, "max_sat", "0.1");
+  set_screen_target_option(idx, "min_val", "0.59");
+  set_screen_target_option(idx, "max_val", "0.61");
+
+  true as i32
+}
+
+extern "C" fn dx_probe() -> u64 {
+  let hud_is_visible = test_screen_target(0, 3.0, 3.0);
+  if hud_is_visible {
+    1 << 1 // game
+  } else {
+    1 << 0 // menu
+  }
+}
+
 static GTA_SA_PLANE_IDS: &'static [u16] = &[460, 464, 476, 511, 512, 513, 519, 539, 553, 577, 592, 593];
 static GTA_SA_HELI_IDS:  &'static [u16] = &[417, 425, 447, 465, 469, 487, 488, 497, 501, 548, 563];
 static GTA_SA_VTOL_ID: u16 = 520;
@@ -55,7 +80,8 @@ static GTA_SA_VTOL_ID: u16 = 520;
 extern "C" fn gta_sa_init(screen_width: u32, screen_height: u32) -> i32 {
 
   // should point at the green dollar sign
-  let idx = add_screen_target(
+  //TODO: different proportions
+  let idx = add_screen_target("pixelcount",
     screen_width as f32 * 0.782, screen_height as f32 * 0.185,
     screen_width as f32 * 0.798, screen_height as f32 * 0.212);
   assert_eq!(idx, 0);
@@ -74,7 +100,6 @@ extern "C" fn gta_sa_probe() -> u64 {
     Other
   }
 
-  //TODO: different proportions
   let hud_is_visible = test_screen_target(0, 0.75, 1.0);
   //println!("hud_is_visible: {}", hud_is_visible);
 
@@ -111,7 +136,7 @@ extern "C" fn gta_sa_probe() -> u64 {
 }
 
 static SR2_HELI_IDS:  &'static [u8] = &[11, 45, 84, 96, 103, 118];
-static SR2_PLANE_IDS: &'static [u8] = &[119, 97, 86, 24];
+static SR2_PLANE_IDS: &'static [u8] = &[24, 86, 97, 119];
 
 extern "C" fn sr2_init(_screen_width: u32, _screen_height: u32) -> i32 {
   true as i32
@@ -152,6 +177,7 @@ extern "C" fn sr2_probe() -> u64 {
 
 #[no_mangle]
 pub extern "C" fn init() {
+  register_probe("Deus Ex", "DeusEx.exe", &["menu", "game"], dx_init, dx_probe);
   register_probe("Grand Theft Auto: San Andreas",
     "gta-sa.exe", &["menu", "walk", "ride", "heli", "plane"], gta_sa_init, gta_sa_probe);
   register_probe("Saints Row 2",

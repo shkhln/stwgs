@@ -15,17 +15,17 @@ use definitions::*;
 use overlay_ipc::{Knob, OverlayCommand, OverlayMenuCommand, Shape};
 
 pub struct WGPUSwapchainProps<'window> {
-  pub width:            u32,
-  pub height:           u32,
-  pub instance:         wgpu::Instance,
-  pub adapter:          wgpu::Adapter,
-  pub device:           wgpu::Device,
-  pub queue:            wgpu::Queue,
-  pub surface:          wgpu::Surface<'window>,
+  pub width:             u32,
+  pub height:            u32,
+  pub instance:          wgpu::Instance,
+  pub adapter:           wgpu::Adapter,
+  pub device:            wgpu::Device,
+  pub queue:             wgpu::Queue,
+  pub surface:           wgpu::Surface<'window>,
   //pub pipeline:         wgpu::RenderPipeline,
-  pub compute_pipeline: wgpu::ComputePipeline,
-  pub egui_renderer:    egui_wgpu::Renderer,
-  pub egui_ctx:         egui::Context
+  pub compute_pipelines: Vec<wgpu::ComputePipeline>,
+  pub egui_renderer:     egui_wgpu::Renderer,
+  pub egui_ctx:          egui::Context
 }
 
 pub struct OverlayState {
@@ -533,7 +533,14 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
       //println!("wgpu surface: {:?}", wgpu_surface);
 
       //let pipeline = wgpu_util::prepare(&adapter, &wgpu_device, &wgpu_surface);
-      let compute_pipeline = wgpu_util::prepare_compute_pipeline(&wgpu_device);
+
+      let mut compute_pipelines = vec![];
+      assert_eq!(overlay_ipc::ScreenScrapingAlgo::PixelCount as usize, compute_pipelines.len());
+      compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
+        concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/pixelcount.wgsl")), &wgpu_device));
+      assert_eq!(overlay_ipc::ScreenScrapingAlgo::VertLineCount as usize, compute_pipelines.len());
+      compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
+        concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/vlinecount.wgsl")), &wgpu_device));
 
       let egui_ctx      = egui::Context::default();
       let egui_renderer = egui_wgpu::Renderer::new(&wgpu_device,
@@ -552,7 +559,7 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
         queue:    wgpu_queue,
         surface:  wgpu_surface,
         //pipeline,
-        compute_pipeline,
+        compute_pipelines,
         egui_renderer,
         egui_ctx
       });
@@ -650,7 +657,7 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
         for target in overlay.screen_scraping_targets.iter_mut() {
           let mut targets = vec![target.0.clone()];
           let scraping_result = wgpu_util::compute(
-            &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipeline, &targets, screen_width, screen_height);
+            &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipelines[target.0.algo as usize], &targets, screen_width, screen_height);
           *target = (targets.remove(0), scraping_result);
         }
         overlay.screen_scraping_targets.first().map(|x| x.1.clone())

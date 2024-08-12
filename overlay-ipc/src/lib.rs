@@ -326,6 +326,7 @@ pub enum OverlayEvent {}*/
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScreenScrapingArea {
+  pub algo:    ScreenScrapingAlgo,
   pub bounds:  Rect,
   pub min_hue: f32,
   pub max_hue: f32,
@@ -333,6 +334,12 @@ pub struct ScreenScrapingArea {
   pub max_sat: f32,
   pub min_val: f32,
   pub max_val: f32
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum ScreenScrapingAlgo {
+  PixelCount,
+  VertLineCount
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

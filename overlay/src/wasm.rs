@@ -130,26 +130,38 @@ impl WasmState {
       }
     }).unwrap();
 
-    linker.func_wrap("env", "_add_screen_target", |x1: f32, y1: f32, x2: f32, y2: f32| {
-      eprintln!("_add_screen_target: {}, {}, {}, {}", x1, y1, x2, y2);
+    linker.func_wrap("env", "_add_screen_target", |mut caller: wasmtime::Caller<'_, ()>, algo_ptr: i32, x1: f32, y1: f32, x2: f32, y2: f32| {
+      eprintln!("_add_screen_target: {}, {}, {}, {}, {}", algo_ptr, x1, y1, x2, y2);
 
-      let mut overlay = OVERLAY_STATE.lock().unwrap();
-      let area = overlay_ipc::ScreenScrapingArea {
-        bounds:  overlay_ipc::Rect {
-          min: overlay_ipc::Point { x: overlay_ipc::Length::px(x1), y: overlay_ipc::Length::px(y1) },
-          max: overlay_ipc::Point { x: overlay_ipc::Length::px(x2), y: overlay_ipc::Length::px(y2) }
-        },
-        min_hue:   0.0,
-        max_hue: 360.0,
-        min_sat:   0.0,
-        max_sat:   1.0,
-        min_val:   0.0,
-        max_val:   1.0
-      };
+      if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
+        let algo_str = read_string_until_nul(&mut memory, &caller, algo_ptr, 1000 /* ? */).unwrap();
+        let algo = match algo_str.as_str() {
+          "pixelcount" => overlay_ipc::ScreenScrapingAlgo::PixelCount,
+          "vlinecount" => overlay_ipc::ScreenScrapingAlgo::VertLineCount,
+          _ => todo!()
+        };
 
-      overlay.screen_scraping_targets.push(
-        (area, overlay_ipc::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
-      (overlay.screen_scraping_targets.len() - 1) as u32
+        let mut overlay = OVERLAY_STATE.lock().unwrap();
+        let area = overlay_ipc::ScreenScrapingArea {
+          algo,
+          bounds:  overlay_ipc::Rect {
+            min: overlay_ipc::Point { x: overlay_ipc::Length::px(x1), y: overlay_ipc::Length::px(y1) },
+            max: overlay_ipc::Point { x: overlay_ipc::Length::px(x2), y: overlay_ipc::Length::px(y2) }
+          },
+          min_hue:   0.0,
+          max_hue: 360.0,
+          min_sat:   0.0,
+          max_sat:   1.0,
+          min_val:   0.0,
+          max_val:   1.0
+        };
+
+        overlay.screen_scraping_targets.push(
+          (area, overlay_ipc::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
+        (overlay.screen_scraping_targets.len() - 1) as u32
+      } else {
+        todo!()
+      }
     }).unwrap();
 
     linker.func_wrap("env", "_set_screen_target_option", |
@@ -259,9 +271,9 @@ impl WasmState {
     eprintln!("executable: {:?}", executable_name);
 
     let win_executable_name = if executable_name == "wine" || executable_name == "wine64" {
-      vmmap().iter().find(|e| e.start == 0x400000)
-        .and_then(|e| e.path.as_ref().and_then(|p| p.rsplit_once('/').map(|x| x.1.to_string())))
-        .map(|name| name.to_lowercase())
+      vmmap().iter()
+        .flat_map(|e| e.path.as_ref().and_then(|p| p.rsplit_once('/').map(|x| x.1.to_lowercase())))
+        .find(|name| name.ends_with(".exe"))
     } else {
       None
     };
