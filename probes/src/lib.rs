@@ -49,12 +49,28 @@ fn peek_mem32(address: u32) -> u32 {
   unsafe { _peek_mem32(address) }
 }
 
-extern "C" fn dx_init(_screen_width: u32, screen_height: u32) -> i32 {
+extern "C" fn dx_init(screen_width: u32, screen_height: u32) -> i32 {
+
+  let fudge_factor = match (screen_width, screen_height) {
+    // 4:3
+    ( 640,  480) => 1.12,
+    ( 800,  600) => 0.9,
+    (1024,  768) => 0.7,
+    // 16:9
+    (1280,  720) => 0.75,
+    (1920, 1080) => 1.0,
+    (2560, 1440) => 1.12,
+    (3840, 2160) => 1.0,
+    // uwqhd
+    (3440, 1440) => 1.0,
+    // ?
+    _ => 1.0
+  };
 
   // should point at compass
   let idx = add_screen_target("vlinecount",
-    screen_height as f32 * 0.024, screen_height as f32 * 0.218,
-    screen_height as f32 * 0.070, screen_height as f32 * 0.224);
+    screen_height as f32 * 0.024, screen_height as f32 * 0.218 * fudge_factor,
+    screen_height as f32 * 0.070, screen_height as f32 * 0.224 * fudge_factor);
   assert_eq!(idx, 0);
   set_screen_target_option(idx, "min_sat", "0.0");
   set_screen_target_option(idx, "max_sat", "0.1");
@@ -78,9 +94,7 @@ static GTA_SA_HELI_IDS:  &'static [u16] = &[417, 425, 447, 465, 469, 487, 488, 4
 static GTA_SA_VTOL_ID: u16 = 520;
 
 extern "C" fn gta_sa_init(screen_width: u32, screen_height: u32) -> i32 {
-
   // should point at the green dollar sign
-  //TODO: different proportions
   let idx = add_screen_target("pixelcount",
     screen_width as f32 * 0.782, screen_height as f32 * 0.185,
     screen_width as f32 * 0.798, screen_height as f32 * 0.212);
@@ -105,7 +119,7 @@ extern "C" fn gta_sa_probe() -> u64 {
 
   if hud_is_visible {
     let vehicle = peek_mem32(0x00C0FEE0);
-    println!("0x00C0FEE0: {:x}", vehicle);
+    //println!("0x00C0FEE0: {:x}", vehicle);
     if vehicle != 0 {
       let vehicle_id   = (peek_mem32(vehicle + 0x20) >> 16) as u16;
       let vehicle_type = match () {

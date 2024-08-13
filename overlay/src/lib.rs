@@ -23,6 +23,9 @@ pub struct WGPUSwapchainProps<'window> {
   pub queue:             wgpu::Queue,
   pub surface:           wgpu::Surface<'window>,
   //pub pipeline:         wgpu::RenderPipeline,
+  pub targets_buffer:    wgpu::Buffer,
+  pub results_buffer:    wgpu::Buffer,
+  pub results_buffer2:   wgpu::Buffer,
   pub compute_pipelines: Vec<wgpu::ComputePipeline>,
   pub egui_renderer:     egui_wgpu::Renderer,
   pub egui_ctx:          egui::Context
@@ -550,6 +553,27 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
       overlay.screen_scraping_targets.clear();
       overlay.probe_initialized = false;
 
+      let targets_buffer = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 1000, //TODO: how large should that buffer be?
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false // ?
+      });
+
+      let results_buffer = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 100, // ?
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false // ?
+      });
+
+      let results_buffer2 = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 100, // ?
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false // ?
+      });
+
       WGPU_SWAPCHAIN_PROPS.lock().unwrap().insert(*swapchain, WGPUSwapchainProps {
         width:    (*create_info).image_extent.width,
         height:   (*create_info).image_extent.height,
@@ -559,6 +583,9 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
         queue:    wgpu_queue,
         surface:  wgpu_surface,
         //pipeline,
+        targets_buffer,
+        results_buffer,
+        results_buffer2,
         compute_pipelines,
         egui_renderer,
         egui_ctx
@@ -657,7 +684,14 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
         for target in overlay.screen_scraping_targets.iter_mut() {
           let mut targets = vec![target.0.clone()];
           let scraping_result = wgpu_util::compute(
-            &frame, &wgpu_props.device, &wgpu_props.queue, &wgpu_props.compute_pipelines[target.0.algo as usize], &targets, screen_width, screen_height);
+            &frame,
+            &wgpu_props.device,
+            &wgpu_props.queue,
+            &wgpu_props.targets_buffer,
+            &wgpu_props.results_buffer,
+            &wgpu_props.results_buffer2,
+            &wgpu_props.compute_pipelines[target.0.algo as usize],
+            &targets);
           *target = (targets.remove(0), scraping_result);
         }
         overlay.screen_scraping_targets.first().map(|x| x.1.clone())

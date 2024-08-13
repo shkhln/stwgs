@@ -439,26 +439,15 @@ pub fn prepare_compute_pipeline(source: &'static str, device: &wgpu::Device) -> 
   })
 }
 
-use std::collections::HashMap;
-
-struct Buffers {
-  targets_buffer:  wgpu::Buffer,
-  results_buffer:  wgpu::Buffer,
-  results_buffer2: wgpu::Buffer
-}
-
-lazy_static! {
-  static ref BFERS: Mutex<HashMap<wgpu::Id<wgpu::Device>, Buffers>> = Mutex::new(HashMap::new());
-}
-
 pub fn compute(
-  frame:    &wgpu::SurfaceTexture,
-  device:   &wgpu::Device,
-  queue:    &wgpu::Queue,
-  pipeline: &wgpu::ComputePipeline,
-  targets:  &Vec<overlay_ipc::ScreenScrapingArea>,
-  screen_width:  u32,
-  screen_height: u32
+  frame:           &wgpu::SurfaceTexture,
+  device:          &wgpu::Device,
+  queue:           &wgpu::Queue,
+  targets_buffer:  &wgpu::Buffer,
+  results_buffer:  &wgpu::Buffer,
+  results_buffer2: &wgpu::Buffer,
+  pipeline:        &wgpu::ComputePipeline,
+  targets:         &Vec<overlay_ipc::ScreenScrapingArea>
 )
   -> overlay_ipc::ScreenScrapingResult
 {
@@ -476,33 +465,8 @@ pub fn compute(
       array_layer_count: Some(1) // ?
     });
 
-  let mut bfers = BFERS.lock().unwrap();
-
-  if !bfers.contains_key(&device.global_id()) {
-    let b = Buffers {
-      targets_buffer: device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: 1000, //TODO: how large should that buffer be?
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false // ?
-      }),
-      results_buffer: device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: 100, // ?
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false // ?
-      }),
-      results_buffer2: device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: 100, // ?
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false // ?
-      })
-    };
-    bfers.insert(device.global_id(), b);
-  }
-
-  let buffers = bfers.get(&device.global_id()).unwrap();
+  let screen_width  = frame.texture.width();
+  let screen_height = frame.texture.height();
 
   let mut offset = 0;
   for target in targets {
@@ -513,7 +477,7 @@ pub fn compute(
       target.bounds.max.y.to_px(screen_width, screen_height) as u32
     ];
     let bytes = bytemuck::cast_slice::<u32, u8>(values);
-    queue.write_buffer(&buffers.targets_buffer, offset as u64, bytes);
+    queue.write_buffer(targets_buffer, offset as u64, bytes);
     offset += bytes.len();
 
     let values = &[
@@ -525,7 +489,7 @@ pub fn compute(
       target.max_val,
     ];
     let bytes = bytemuck::cast_slice::<f32, u8>(values);
-    queue.write_buffer(&buffers.targets_buffer, offset as u64, bytes);
+    queue.write_buffer(targets_buffer, offset as u64, bytes);
     offset += bytes.len();
   }
 
@@ -540,11 +504,11 @@ pub fn compute(
       },
       wgpu::BindGroupEntry {
         binding: 1,
-        resource: buffers.targets_buffer.as_entire_binding()
+        resource: targets_buffer.as_entire_binding()
       },
       wgpu::BindGroupEntry {
         binding: 2,
-        resource: buffers.results_buffer.as_entire_binding()
+        resource: results_buffer.as_entire_binding()
       }
     ]
   });
@@ -558,17 +522,17 @@ pub fn compute(
     pass.dispatch_workgroups(1, 1, 1); // ?
   }
 
-  encoder.copy_buffer_to_buffer(&buffers.results_buffer, 0, &buffers.results_buffer2, 0, 100);
+  encoder.copy_buffer_to_buffer(results_buffer, 0, results_buffer2, 0, 100);
 
   queue.submit(Some(encoder.finish()));
 
-  let buffer_slice = buffers.results_buffer2.slice(..);
+  let buffer_slice = results_buffer2.slice(..);
   buffer_slice.map_async(wgpu::MapMode::Read, |_| ());
 
   device.poll(wgpu::Maintain::Wait);
 
   let result = bytemuck::cast_slice::<u8, f32>(&buffer_slice.get_mapped_range()).to_owned();
-  buffers.results_buffer2.unmap();
+  results_buffer2.unmap();
 
   overlay_ipc::ScreenScrapingResult { pixels_in_range: result[0], uniformity_score: result[1] }
 }
