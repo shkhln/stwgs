@@ -135,19 +135,19 @@ impl WasmState {
 
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
         let algo_str = read_string_until_nul(&mut memory, &caller, algo_ptr, 1000 /* ? */).unwrap();
-        let algo = match algo_str.as_str() {
-          "pixelcount" => overlay_ipc::ScreenScrapingAlgo::PixelCount,
-          "vlinecount" => overlay_ipc::ScreenScrapingAlgo::VertLineCount,
+        let shader = match algo_str.as_str() {
+          "pixelcount" => crate::BuiltinShader::PixelCount,
+          "vlinecount" => crate::BuiltinShader::VertLineCount,
           _ => todo!()
         };
 
         let mut overlay = OVERLAY_STATE.lock().unwrap();
-        let area = overlay_ipc::ScreenScrapingArea {
-          algo,
-          bounds:  overlay_ipc::Rect {
-            min: overlay_ipc::Point { x: overlay_ipc::Length::px(x1), y: overlay_ipc::Length::px(y1) },
-            max: overlay_ipc::Point { x: overlay_ipc::Length::px(x2), y: overlay_ipc::Length::px(y2) }
-          },
+        let area = crate::ScreenScrapingArea {
+          shader,
+          min_x:   x1,
+          min_y:   y1,
+          max_x:   x2,
+          max_y:   y2,
           min_hue:   0.0,
           max_hue: 360.0,
           min_sat:   0.0,
@@ -157,7 +157,7 @@ impl WasmState {
         };
 
         overlay.screen_scraping_targets.push(
-          (area, overlay_ipc::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
+          (area, crate::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
         (overlay.screen_scraping_targets.len() - 1) as u32
       } else {
         todo!()

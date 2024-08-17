@@ -447,9 +447,9 @@ pub fn compute(
   results_buffer:  &wgpu::Buffer,
   results_buffer2: &wgpu::Buffer,
   pipeline:        &wgpu::ComputePipeline,
-  targets:         &Vec<overlay_ipc::ScreenScrapingArea>
+  target:          &crate::ScreenScrapingArea
 )
-  -> overlay_ipc::ScreenScrapingResult
+  -> crate::ScreenScrapingResult
 {
   let view = frame
     .texture
@@ -465,33 +465,7 @@ pub fn compute(
       array_layer_count: Some(1) // ?
     });
 
-  let screen_width  = frame.texture.width();
-  let screen_height = frame.texture.height();
-
-  let mut offset = 0;
-  for target in targets {
-    let values = &[
-      target.bounds.min.x.to_px(screen_width, screen_height) as u32,
-      target.bounds.min.y.to_px(screen_width, screen_height) as u32,
-      target.bounds.max.x.to_px(screen_width, screen_height) as u32,
-      target.bounds.max.y.to_px(screen_width, screen_height) as u32
-    ];
-    let bytes = bytemuck::cast_slice::<u32, u8>(values);
-    queue.write_buffer(targets_buffer, offset as u64, bytes);
-    offset += bytes.len();
-
-    let values = &[
-      target.min_hue,
-      target.max_hue,
-      target.min_sat,
-      target.max_sat,
-      target.min_val,
-      target.max_val,
-    ];
-    let bytes = bytemuck::cast_slice::<f32, u8>(values);
-    queue.write_buffer(targets_buffer, offset as u64, bytes);
-    offset += bytes.len();
-  }
+  target.write_params(queue, targets_buffer);
 
   let bind_group_layout = pipeline.get_bind_group_layout(0);
   let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -531,8 +505,10 @@ pub fn compute(
 
   device.poll(wgpu::Maintain::Wait);
 
-  let result = bytemuck::cast_slice::<u8, f32>(&buffer_slice.get_mapped_range()).to_owned();
+  let mut results: [f32; 2] = [0f32, 0f32]; // ?
+  target.read_results(&buffer_slice, results.as_mut_slice());
+
   results_buffer2.unmap();
 
-  overlay_ipc::ScreenScrapingResult { pixels_in_range: result[0], uniformity_score: result[1] }
+  crate::ScreenScrapingResult { pixels_in_range: results[0], uniformity_score: results[1] }
 }

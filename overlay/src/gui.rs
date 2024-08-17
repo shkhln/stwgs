@@ -1,9 +1,9 @@
 use egui::{pos2, vec2, Align2, Color32, Pos2, Rect, Vec2};
-use overlay_ipc::{Color, Knob, Point, ScreenScrapingResult, Shape};
+use overlay_ipc::{Color, Knob, Point, Shape};
 
 use crate::OverlayState;
 
-pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), scraping_result: Option<ScreenScrapingResult>) -> egui::FullOutput {
+pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), scraping_result: Option<crate::ScreenScrapingResult>) -> egui::FullOutput {
 
   let (screen_width, screen_height) = screen;
 
@@ -198,10 +198,10 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
 
           for target in overlay.screen_scraping_targets.iter() {
 
-            let min_x = target.0.bounds.min.x.to_px(screen_width, screen_height);
-            let min_y = target.0.bounds.min.y.to_px(screen_width, screen_height);
-            let max_x = target.0.bounds.max.x.to_px(screen_width, screen_height);
-            let max_y = target.0.bounds.max.y.to_px(screen_width, screen_height);
+            let min_x = target.0.min_x as f32;
+            let min_y = target.0.min_y as f32;
+            let max_x = target.0.max_x as f32;
+            let max_y = target.0.max_y as f32;
 
             let rect = Rect::from_min_max(pos2(min_x, min_y), pos2(max_x, max_y));
 

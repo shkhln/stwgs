@@ -14,37 +14,104 @@ mod wgpu_util;
 use definitions::*;
 use overlay_ipc::{Knob, OverlayCommand, OverlayMenuCommand, Shape};
 
-pub struct WGPUSwapchainProps<'window> {
-  pub width:             u32,
-  pub height:            u32,
-  pub instance:          wgpu::Instance,
-  pub adapter:           wgpu::Adapter,
-  pub device:            wgpu::Device,
-  pub queue:             wgpu::Queue,
-  pub surface:           wgpu::Surface<'window>,
-  //pub pipeline:         wgpu::RenderPipeline,
-  pub targets_buffer:    wgpu::Buffer,
-  pub results_buffer:    wgpu::Buffer,
-  pub results_buffer2:   wgpu::Buffer,
-  pub compute_pipelines: Vec<wgpu::ComputePipeline>,
-  pub egui_renderer:     egui_wgpu::Renderer,
-  pub egui_ctx:          egui::Context
+#[derive(Clone, Debug)]
+struct ScreenScrapingArea {
+  shader:  BuiltinShader,
+  min_x:   f32,
+  min_y:   f32,
+  max_x:   f32,
+  max_y:   f32,
+  min_hue: f32,
+  max_hue: f32,
+  min_sat: f32,
+  max_sat: f32,
+  min_val: f32,
+  max_val: f32
 }
 
-pub struct OverlayState {
-  pub hud_is_active: bool,
-  pub screen_scraping_targets: Vec<(overlay_ipc::ScreenScrapingArea, overlay_ipc::ScreenScrapingResult)>,
-  pub layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
-  pub layer_names: Vec<String>,
-  pub mode: u64,
-  pub status_text: Option<String>,
-  pub shapes: HashMap<u64 /* stage id */, Vec<(Vec<Shape>, u64 /* visibility mask */)>>,
-  pub knobs: Vec<Knob>,
-  pub knob_menu_visible: bool,
-  pub knob_menu_selected_item: usize,
-  pub probe_initialized: bool,
-  pub probe_state_sender: Option<overlay_ipc::ipc::IpcSender<(u64, Option<Vec<String>>)>>,
-  pub probe_flag_names_sent: bool
+#[derive(Clone, Copy, Debug)]
+enum BuiltinShader {
+  PixelCount,
+  VertLineCount
+}
+
+//TODO: rework
+#[derive(Clone, Debug)]
+struct ScreenScrapingResult {
+  pixels_in_range:  f32,
+  uniformity_score: f32 // ?
+}
+
+impl ScreenScrapingArea {
+
+  fn write_params(&self, queue: &wgpu::Queue, buffer: &wgpu::Buffer) {
+    let mut offset = 0;
+
+    let values = &[
+      self.min_x as u32,
+      self.min_y as u32,
+      self.max_x as u32,
+      self.max_y as u32
+    ];
+    let bytes = bytemuck::cast_slice::<u32, u8>(values);
+    queue.write_buffer(buffer, offset as u64, bytes);
+    offset += bytes.len();
+
+    let values = &[
+      self.min_hue,
+      self.max_hue,
+      self.min_sat,
+      self.max_sat,
+      self.min_val,
+      self.max_val,
+    ];
+    let bytes = bytemuck::cast_slice::<f32, u8>(values);
+    queue.write_buffer(buffer, offset as u64, bytes);
+  }
+
+  fn read_results(&self, &buffer_slice: &wgpu::BufferSlice<'_>, out: &mut [f32]) {
+    let view  = buffer_slice.get_mapped_range();
+    let slice = bytemuck::cast_slice::<u8, f32>(&view);
+    for i in 0..slice.len() {
+      if i >= out.len() {
+        break; // ?
+      }
+      out[i] = slice[i];
+    }
+  }
+}
+
+struct WGPUSwapchainProps<'window> {
+  width:             u32,
+  height:            u32,
+  instance:          wgpu::Instance,
+  adapter:           wgpu::Adapter,
+  device:            wgpu::Device,
+  queue:             wgpu::Queue,
+  surface:           wgpu::Surface<'window>,
+  //pub pipeline:         wgpu::RenderPipeline,
+  targets_buffer:    wgpu::Buffer,
+  results_buffer:    wgpu::Buffer,
+  results_buffer2:   wgpu::Buffer,
+  compute_pipelines: Vec<wgpu::ComputePipeline>,
+  egui_renderer:     egui_wgpu::Renderer,
+  egui_ctx:          egui::Context
+}
+
+struct OverlayState {
+  hud_is_active: bool,
+  screen_scraping_targets: Vec<(ScreenScrapingArea, ScreenScrapingResult)>,
+  layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
+  layer_names: Vec<String>,
+  mode: u64,
+  status_text: Option<String>,
+  shapes: HashMap<u64 /* stage id */, Vec<(Vec<Shape>, u64 /* visibility mask */)>>,
+  knobs: Vec<Knob>,
+  knob_menu_visible: bool,
+  knob_menu_selected_item: usize,
+  probe_initialized: bool,
+  probe_state_sender: Option<overlay_ipc::ipc::IpcSender<(u64, Option<Vec<String>>)>>,
+  probe_flag_names_sent: bool
 }
 
 impl OverlayState {
@@ -538,10 +605,10 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
       //let pipeline = wgpu_util::prepare(&adapter, &wgpu_device, &wgpu_surface);
 
       let mut compute_pipelines = vec![];
-      assert_eq!(overlay_ipc::ScreenScrapingAlgo::PixelCount as usize, compute_pipelines.len());
+      assert_eq!(crate::BuiltinShader::PixelCount as usize, compute_pipelines.len());
       compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
         concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/pixelcount.wgsl")), &wgpu_device));
-      assert_eq!(overlay_ipc::ScreenScrapingAlgo::VertLineCount as usize, compute_pipelines.len());
+      assert_eq!(crate::BuiltinShader::VertLineCount as usize, compute_pipelines.len());
       compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
         concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/vlinecount.wgsl")), &wgpu_device));
 
@@ -681,8 +748,8 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
 
     let scraping_result =
       if !overlay.screen_scraping_targets.is_empty() {
-        for target in overlay.screen_scraping_targets.iter_mut() {
-          let mut targets = vec![target.0.clone()];
+        //TODO: we don't need to execute pipelines sequentially
+        for (target, result) in overlay.screen_scraping_targets.iter_mut() {
           let scraping_result = wgpu_util::compute(
             &frame,
             &wgpu_props.device,
@@ -690,9 +757,9 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
             &wgpu_props.targets_buffer,
             &wgpu_props.results_buffer,
             &wgpu_props.results_buffer2,
-            &wgpu_props.compute_pipelines[target.0.algo as usize],
-            &targets);
-          *target = (targets.remove(0), scraping_result);
+            &wgpu_props.compute_pipelines[target.shader as usize],
+            &target);
+          *result = scraping_result;
         }
         overlay.screen_scraping_targets.first().map(|x| x.1.clone())
       } else {
