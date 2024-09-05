@@ -12,9 +12,9 @@ extern "C" {
   fn _register_probe(name: *const u8, executable: *const u8, flag_names: *const *const u8, flag_names_len: usize,
     init: extern "C" fn(u32, u32) -> i32 /* bool */, probe: extern "C" fn() -> u64);
 
-  fn _add_screen_target(algo: *const u8, x1: f32, y1: f32, x2: f32, y2: f32) -> u32;
+  fn _add_screen_target(algo: *const u8) -> u32;
   fn _set_screen_target_option(id: u32, option: *const u8, value: *const u8) -> ();
-  fn _test_screen_target(id: u32, threshold1: f32, threshold2: f32) -> i32 /* bool */;
+  fn _test_screen_target(id: u32, threshold: f32) -> i32 /* bool */;
 
   fn _peek_mem32(address: u32) -> u32;
 }
@@ -30,9 +30,9 @@ fn register_probe(name: &str, executable: &str, flag_names: &[&str], test: exter
   }
 }
 
-fn add_screen_target(algo: &str, x1: f32, y1: f32, x2: f32, y2: f32) -> u32 {
+fn add_screen_target(algo: &str) -> u32 {
   let algo = CString::new(algo).unwrap();
-  unsafe { _add_screen_target(algo.as_ptr() as *const u8, x1, y1, x2, y2) }
+  unsafe { _add_screen_target(algo.as_ptr() as *const u8) }
 }
 
 fn set_screen_target_option(id: u32, option: &str, value: &str) {
@@ -41,8 +41,8 @@ fn set_screen_target_option(id: u32, option: &str, value: &str) {
   unsafe { _set_screen_target_option(id, option.as_ptr() as *const u8, value.as_ptr() as *const u8); }
 }
 
-fn test_screen_target(id: u32, threshold1: f32, threshold2: f32) -> bool {
-  unsafe { _test_screen_target(id, threshold1, threshold2) == 1 }
+fn test_screen_target(id: u32, threshold: f32) -> bool {
+  unsafe { _test_screen_target(id, threshold) == 1 }
 }
 
 fn peek_mem32(address: u32) -> u32 {
@@ -68,10 +68,13 @@ extern "C" fn dx_init(screen_width: u32, screen_height: u32) -> i32 {
   };
 
   // should point at compass
-  let idx = add_screen_target("vlinecount",
-    screen_height as f32 * 0.024, screen_height as f32 * 0.218 * fudge_factor,
-    screen_height as f32 * 0.070, screen_height as f32 * 0.224 * fudge_factor);
+  let idx = add_screen_target("clusters");
   assert_eq!(idx, 0);
+
+  set_screen_target_option(idx, "min_x",   &std::format!("{}", screen_height as f32 * 0.024));
+  set_screen_target_option(idx, "min_y",   &std::format!("{}", screen_height as f32 * 0.218 * fudge_factor));
+  set_screen_target_option(idx, "max_x",   &std::format!("{}", screen_height as f32 * 0.070));
+  set_screen_target_option(idx, "max_y",   &std::format!("{}", screen_height as f32 * 0.218 * fudge_factor));
   set_screen_target_option(idx, "min_sat", "0.0");
   set_screen_target_option(idx, "max_sat", "0.1");
   set_screen_target_option(idx, "min_val", "0.59");
@@ -81,7 +84,7 @@ extern "C" fn dx_init(screen_width: u32, screen_height: u32) -> i32 {
 }
 
 extern "C" fn dx_probe() -> u64 {
-  let hud_is_visible = test_screen_target(0, 3.0, 3.0);
+  let hud_is_visible = test_screen_target(0, 3.0);
   if hud_is_visible {
     1 << 1 // game
   } else {
@@ -95,16 +98,19 @@ static GTA_SA_VTOL_ID: u16 = 520;
 
 extern "C" fn gta_sa_init(screen_width: u32, screen_height: u32) -> i32 {
   // should point at the green dollar sign
-  let idx = add_screen_target("pixelcount",
-    screen_width as f32 * 0.782, screen_height as f32 * 0.185,
-    screen_width as f32 * 0.798, screen_height as f32 * 0.212);
+  let idx = add_screen_target("pixelcount");
   assert_eq!(idx, 0);
+  set_screen_target_option(idx, "min_x",   &std::format!("{}", screen_width  as f32 * 0.782));
+  set_screen_target_option(idx, "min_y",   &std::format!("{}", screen_height as f32 * 0.185));
+  set_screen_target_option(idx, "max_x",   &std::format!("{}", screen_width  as f32 * 0.798));
+  set_screen_target_option(idx, "max_y",   &std::format!("{}", screen_height as f32 * 0.212));
   set_screen_target_option(idx, "min_hue", "108.0");
   set_screen_target_option(idx, "max_hue", "110.0");
 
   true as i32
 }
 
+//TODO: minigames?
 extern "C" fn gta_sa_probe() -> u64 {
 
   #[derive(Debug)]
@@ -114,7 +120,7 @@ extern "C" fn gta_sa_probe() -> u64 {
     Other
   }
 
-  let hud_is_visible = test_screen_target(0, 0.75, 1.0);
+  let hud_is_visible = test_screen_target(0, 0.75);
   //println!("hud_is_visible: {}", hud_is_visible);
 
   if hud_is_visible {
@@ -189,11 +195,65 @@ extern "C" fn sr2_probe() -> u64 {
   }
 }
 
+extern "C" fn ss2_init(screen_width: u32, screen_height: u32) -> i32 {
+
+  // should point at the "inventory" label
+  let idx = add_screen_target("clusters");
+  assert_eq!(idx, 0);
+  set_screen_target_option(idx, "min_x",   &std::format!("{}", screen_width as f32 * 0.26));
+  set_screen_target_option(idx, "min_y",   &std::format!("{}", 16f32 /* ? */));
+  set_screen_target_option(idx, "max_x",   &std::format!("{}", screen_width as f32 * 0.40));
+  set_screen_target_option(idx, "max_y",   &std::format!("{}", 16f32 /* ? */));
+  set_screen_target_option(idx, "min_sat", "0.0");
+  set_screen_target_option(idx, "max_sat", "0.1");
+  set_screen_target_option(idx, "min_val", "0.75");
+  set_screen_target_option(idx, "max_val", "0.85");
+
+  // should point at the health bar + numbers
+  let idx = add_screen_target("clusters");
+  assert_eq!(idx, 1);
+  set_screen_target_option(idx, "min_x",   &std::format!("{}", screen_width as f32 * 0.01));
+  set_screen_target_option(idx, "min_y",   &std::format!("{}", screen_height as f32 - screen_height as f32 * 0.06 /* ? */));
+  set_screen_target_option(idx, "max_x",   &std::format!("{}", screen_width as f32 * 0.10));
+  set_screen_target_option(idx, "max_y",   &std::format!("{}", screen_height as f32 - screen_height as f32 * 0.06 /* ? */));
+  set_screen_target_option(idx, "min_hue", "164.0");
+  set_screen_target_option(idx, "max_hue", "165.0");
+  set_screen_target_option(idx, "min_sat", "1.0");
+  set_screen_target_option(idx, "min_val", "0.5");
+
+  true as i32
+}
+
+extern "C" fn ss2_probe() -> u64 {
+  let hud_is_visible       = test_screen_target(1, 3.0);
+  let inventory_is_visible = test_screen_target(0, 5.0);
+  if hud_is_visible && !inventory_is_visible {
+    1 << 1 // game
+  } else {
+    1 << 0 // menu
+  }
+}
+
 #[no_mangle]
 pub extern "C" fn init() {
-  register_probe("Deus Ex", "DeusEx.exe", &["menu", "game"], dx_init, dx_probe);
+  register_probe("Deus Ex",
+    "DeusEx.exe",
+    &["menu", "game"],
+    dx_init,
+    dx_probe);
   register_probe("Grand Theft Auto: San Andreas",
-    "gta-sa.exe", &["menu", "walk", "ride", "heli", "plane"], gta_sa_init, gta_sa_probe);
+    "gta-sa.exe",
+    &["menu", "walk", "ride", "heli", "plane"],
+    gta_sa_init,
+    gta_sa_probe);
   register_probe("Saints Row 2",
-    "SR2_pc.exe", &["menu", "walk", "ride", "heli", "plane"], sr2_init, sr2_probe);
+    "SR2_pc.exe",
+    &["menu", "walk", "ride", "heli", "plane"],
+    sr2_init,
+    sr2_probe);
+  register_probe("System Shock 2",
+    "SS2.exe",
+    &["menu", "game"],
+    ss2_init,
+    ss2_probe);
 }

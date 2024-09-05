@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 
 use crate::OVERLAY_STATE;
+use crate::shaders;
 
 lazy_static! {
   pub static ref WASM: Mutex<Option<WasmState>> = Mutex::new(
@@ -34,7 +35,7 @@ lazy_static! {
             }
 
             let mut overlay = OVERLAY_STATE.lock().unwrap();
-            overlay.screen_scraping_targets.clear();
+            overlay.screen_targets.clear();
             overlay.probe_initialized = false;
             overlay.probe_flag_names_sent = false;
 
@@ -130,35 +131,21 @@ impl WasmState {
       }
     }).unwrap();
 
-    linker.func_wrap("env", "_add_screen_target", |mut caller: wasmtime::Caller<'_, ()>, algo_ptr: i32, x1: f32, y1: f32, x2: f32, y2: f32| {
-      eprintln!("_add_screen_target: {}, {}, {}, {}, {}", algo_ptr, x1, y1, x2, y2);
+    linker.func_wrap("env", "_add_screen_target", |mut caller: wasmtime::Caller<'_, ()>, algo_ptr: i32| {
+      eprintln!("_add_screen_target: {}", algo_ptr);
 
       if let Some(wasmtime::Extern::Memory(mut memory)) = caller.get_export("memory") {
         let algo_str = read_string_until_nul(&mut memory, &caller, algo_ptr, 1000 /* ? */).unwrap();
-        let shader = match algo_str.as_str() {
-          "pixelcount" => crate::BuiltinShader::PixelCount,
-          "vlinecount" => crate::BuiltinShader::VertLineCount,
-          _ => todo!()
-        };
 
         let mut overlay = OVERLAY_STATE.lock().unwrap();
-        let area = crate::ScreenScrapingArea {
-          shader,
-          min_x:   x1,
-          min_y:   y1,
-          max_x:   x2,
-          max_y:   y2,
-          min_hue:   0.0,
-          max_hue: 360.0,
-          min_sat:   0.0,
-          max_sat:   1.0,
-          min_val:   0.0,
-          max_val:   1.0
-        };
 
-        overlay.screen_scraping_targets.push(
-          (area, crate::ScreenScrapingResult { pixels_in_range: 0.0, uniformity_score: 0.0 }));
-        (overlay.screen_scraping_targets.len() - 1) as u32
+        overlay.screen_targets.push((match algo_str.as_str() {
+          "pixelcount" => Box::new(shaders::PixelCount::default()),
+          "clusters"   => Box::new(shaders::Clusters::default()),
+          _ => todo!()
+        }, vec![0.0]));
+
+        (overlay.screen_targets.len() - 1) as u32
       } else {
         todo!()
       }
@@ -173,28 +160,22 @@ impl WasmState {
         let value  = read_string_until_nul(&mut memory, &caller, value_ptr,  1000 /* ? */).unwrap();
 
         let mut overlay = OVERLAY_STATE.lock().unwrap();
-        if let Some(target) = overlay.screen_scraping_targets.get_mut(idx as usize) {
-          match option.as_str() {
-            "min_hue" => target.0.min_hue = value.parse().unwrap(),
-            "max_hue" => target.0.max_hue = value.parse().unwrap(),
-            "min_sat" => target.0.min_sat = value.parse().unwrap(),
-            "max_sat" => target.0.max_sat = value.parse().unwrap(),
-            "min_val" => target.0.min_val = value.parse().unwrap(),
-            "max_val" => target.0.max_val = value.parse().unwrap(),
-            _ => todo!()
-          };
+
+        if let Some(target) = overlay.screen_targets.get_mut(idx as usize) {
+          target.0.set_parameter(&option, &value).unwrap();
         } else {
           todo!();
         }
+
       } else {
         todo!();
       }
     }).unwrap();
 
-    linker.func_wrap("env", "_test_screen_target", |idx: u32, threshold1: f32, threshold2: f32| {
+    linker.func_wrap("env", "_test_screen_target", |idx: u32, threshold: f32| {
       let mut overlay = OVERLAY_STATE.lock().unwrap();
-      if let Some((_, result)) = overlay.screen_scraping_targets.get(idx as usize) {
-        if result.pixels_in_range >= threshold1 || result.uniformity_score >= threshold2 { 1 } else { 0 }
+      if let Some((_, result)) = overlay.screen_targets.get(idx as usize) {
+        if result[0] >= threshold { 1 } else { 0 }
       } else {
         todo!()
       }
@@ -308,7 +289,7 @@ impl WasmState {
         if same_exe_name {
           {
             let mut overlay = OVERLAY_STATE.lock().unwrap();
-            overlay.screen_scraping_targets.clear();
+            overlay.screen_targets.clear();
           }
           p.init.call(&mut self.store, (screen_width, screen_height)).unwrap() == 1
         } else {

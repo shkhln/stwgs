@@ -7,6 +7,7 @@ use ash::vk::Handle;
 use lazy_static::lazy_static;
 
 use crate::REGISTRY;
+use crate::shaders;
 
 #[derive(Default)]
 struct DummyState {
@@ -447,10 +448,9 @@ pub fn compute(
   results_buffer:  &wgpu::Buffer,
   results_buffer2: &wgpu::Buffer,
   pipeline:        &wgpu::ComputePipeline,
-  target:          &crate::ScreenScrapingArea
-)
-  -> crate::ScreenScrapingResult
-{
+  target:          &dyn shaders::ScreenScraper,
+  out:             &mut Vec<f32>
+) {
   let view = frame
     .texture
     .create_view(&wgpu::TextureViewDescriptor {
@@ -505,10 +505,18 @@ pub fn compute(
 
   device.poll(wgpu::Maintain::Wait);
 
-  let mut results: [f32; 2] = [0f32, 0f32]; // ?
-  target.read_results(&buffer_slice, results.as_mut_slice());
+  {
+    let view  = buffer_slice.get_mapped_range();
+    let slice = bytemuck::cast_slice::<u8, f32>(&view);
+    out.clear();
+    for i in 0..slice.len() {
+      if i < target.max_results() {
+        out.push(slice[i]);
+      } else {
+        break;
+      }
+    }
+  }
 
   results_buffer2.unmap();
-
-  crate::ScreenScrapingResult { pixels_in_range: results[0], uniformity_score: results[1] }
 }

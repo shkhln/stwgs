@@ -3,7 +3,7 @@ use overlay_ipc::{Color, Knob, Point, Shape};
 
 use crate::OverlayState;
 
-pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), scraping_result: Option<crate::ScreenScrapingResult>) -> egui::FullOutput {
+pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32)) -> egui::FullOutput {
 
   let (screen_width, screen_height) = screen;
 
@@ -196,26 +196,24 @@ pub fn draw_ui(overlay: &OverlayState, ctx: &egui::Context, screen: (u32, u32), 
             }
           });
 
-          for target in overlay.screen_scraping_targets.iter() {
-
-            let min_x = target.0.min_x as f32;
-            let min_y = target.0.min_y as f32;
-            let max_x = target.0.max_x as f32;
-            let max_y = target.0.max_y as f32;
-
-            let rect = Rect::from_min_max(pos2(min_x, min_y), pos2(max_x, max_y));
-
+          for (target, results) in overlay.screen_targets.iter() {
+            let rect = target.bbox();
             ui.allocate_ui_at_rect(Rect::from_min_size(rect.min, vec2(500.0, 500.0)), |ui| {
-              ui.add(egui::Label::new(
-                egui::RichText::new(
-                  format!("{:.5}\n{:.5}",
-                    scraping_result.as_ref().unwrap().pixels_in_range,
-                    scraping_result.as_ref().unwrap().uniformity_score))
-                  .background_color(Color32::TRANSPARENT)
-                  .color(Color32::WHITE)));
+              for value in results {
+                ui.add(egui::Label::new(
+                  egui::RichText::new(format!("{:.5}", value))
+                    .background_color(Color32::TRANSPARENT)
+                    .color(Color32::WHITE)));
+              }
             });
 
             ui.painter().rect(rect, egui::Rounding::ZERO, Color32::TRANSPARENT, egui::Stroke::new(3.0, Color32::GREEN));
+            match target.shader() {
+              crate::shaders::BuiltinShader::Clusters => {
+                ui.painter().line_segment([rect.min, rect.max], egui::Stroke::new(3.0, Color32::GREEN));
+              },
+              _ => ()
+            };
           }
         }
 

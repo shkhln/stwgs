@@ -8,78 +8,12 @@ use lazy_static::lazy_static;
 
 mod definitions;
 mod gui;
+mod shaders;
 mod wasm;
 mod wgpu_util;
 
 use definitions::*;
 use overlay_ipc::{Knob, OverlayCommand, OverlayMenuCommand, Shape};
-
-#[derive(Clone, Debug)]
-struct ScreenScrapingArea {
-  shader:  BuiltinShader,
-  min_x:   f32,
-  min_y:   f32,
-  max_x:   f32,
-  max_y:   f32,
-  min_hue: f32,
-  max_hue: f32,
-  min_sat: f32,
-  max_sat: f32,
-  min_val: f32,
-  max_val: f32
-}
-
-#[derive(Clone, Copy, Debug)]
-enum BuiltinShader {
-  PixelCount,
-  VertLineCount
-}
-
-//TODO: rework
-#[derive(Clone, Debug)]
-struct ScreenScrapingResult {
-  pixels_in_range:  f32,
-  uniformity_score: f32 // ?
-}
-
-impl ScreenScrapingArea {
-
-  fn write_params(&self, queue: &wgpu::Queue, buffer: &wgpu::Buffer) {
-    let mut offset = 0;
-
-    let values = &[
-      self.min_x as u32,
-      self.min_y as u32,
-      self.max_x as u32,
-      self.max_y as u32
-    ];
-    let bytes = bytemuck::cast_slice::<u32, u8>(values);
-    queue.write_buffer(buffer, offset as u64, bytes);
-    offset += bytes.len();
-
-    let values = &[
-      self.min_hue,
-      self.max_hue,
-      self.min_sat,
-      self.max_sat,
-      self.min_val,
-      self.max_val,
-    ];
-    let bytes = bytemuck::cast_slice::<f32, u8>(values);
-    queue.write_buffer(buffer, offset as u64, bytes);
-  }
-
-  fn read_results(&self, &buffer_slice: &wgpu::BufferSlice<'_>, out: &mut [f32]) {
-    let view  = buffer_slice.get_mapped_range();
-    let slice = bytemuck::cast_slice::<u8, f32>(&view);
-    for i in 0..slice.len() {
-      if i >= out.len() {
-        break; // ?
-      }
-      out[i] = slice[i];
-    }
-  }
-}
 
 struct WGPUSwapchainProps<'window> {
   width:             u32,
@@ -100,7 +34,7 @@ struct WGPUSwapchainProps<'window> {
 
 struct OverlayState {
   hud_is_active: bool,
-  screen_scraping_targets: Vec<(ScreenScrapingArea, ScreenScrapingResult)>,
+  screen_targets: Vec<(Box<dyn shaders::ScreenScraper + Send + Sync>, Vec<f32>)>,
   layer_checks: Vec<(usize, overlay_ipc::ipc::IpcSender<bool>)>,
   layer_names: Vec<String>,
   mode: u64,
@@ -119,7 +53,7 @@ impl OverlayState {
   pub fn new() -> Self {
     Self {
       hud_is_active: true,
-      screen_scraping_targets: vec![],
+      screen_targets: vec![],
       layer_checks: vec![],
       layer_names: vec![],
       mode: 0,
@@ -136,7 +70,7 @@ impl OverlayState {
 
   pub fn reset(&mut self) {
     self.hud_is_active = true;
-    self.screen_scraping_targets.clear();
+    self.screen_targets.clear();
     self.layer_checks.clear();
     self.layer_names.clear();
     self.mode = 0;
@@ -304,6 +238,7 @@ lazy_static! {
 
 use std::ops::Deref;
 use std::sync::Arc;
+use wgpu::{Buffer, Queue};
 
 struct Registry {
   instances:       HashMap<ash::vk::Instance,       (Arc<ash::Instance>, ash::vk::PFN_vkGetInstanceProcAddr)>,
@@ -605,19 +540,19 @@ unsafe extern "C" fn overlay_vk_create_swapchain_khr(
       //let pipeline = wgpu_util::prepare(&adapter, &wgpu_device, &wgpu_surface);
 
       let mut compute_pipelines = vec![];
-      assert_eq!(crate::BuiltinShader::PixelCount as usize, compute_pipelines.len());
+      assert_eq!(shaders::BuiltinShader::PixelCount as usize, compute_pipelines.len());
       compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
         concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/pixelcount.wgsl")), &wgpu_device));
-      assert_eq!(crate::BuiltinShader::VertLineCount as usize, compute_pipelines.len());
+      assert_eq!(shaders::BuiltinShader::Clusters as usize, compute_pipelines.len());
       compute_pipelines.push(wgpu_util::prepare_compute_pipeline(
-        concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/vlinecount.wgsl")), &wgpu_device));
+        concat!(include_str!("shaders/hsv.wgsl"), include_str!("shaders/clusters.wgsl")), &wgpu_device));
 
       let egui_ctx      = egui::Context::default();
       let egui_renderer = egui_wgpu::Renderer::new(&wgpu_device,
         wgpu::TextureFormat::Bgra8Unorm /*wgpu_surface.get_preferred_format(&adapter).unwrap()*/, None, 1);
 
       let mut overlay = OVERLAY_STATE.lock().unwrap();
-      overlay.screen_scraping_targets.clear();
+      overlay.screen_targets.clear();
       overlay.probe_initialized = false;
 
       let targets_buffer = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
@@ -746,27 +681,21 @@ unsafe extern "C" fn overlay_vk_queue_present_khr(queue: ash::vk::Queue, present
 
     let mut overlay = OVERLAY_STATE.lock().unwrap();
 
-    let scraping_result =
-      if !overlay.screen_scraping_targets.is_empty() {
-        //TODO: we don't need to execute pipelines sequentially
-        for (target, result) in overlay.screen_scraping_targets.iter_mut() {
-          let scraping_result = wgpu_util::compute(
-            &frame,
-            &wgpu_props.device,
-            &wgpu_props.queue,
-            &wgpu_props.targets_buffer,
-            &wgpu_props.results_buffer,
-            &wgpu_props.results_buffer2,
-            &wgpu_props.compute_pipelines[target.shader as usize],
-            &target);
-          *result = scraping_result;
-        }
-        overlay.screen_scraping_targets.first().map(|x| x.1.clone())
-      } else {
-        None
-      };
+    //TODO: we don't need to execute pipelines sequentially
+    for (target, result) in overlay.screen_targets.iter_mut() {
+      wgpu_util::compute(
+        &frame,
+        &wgpu_props.device,
+        &wgpu_props.queue,
+        &wgpu_props.targets_buffer,
+        &wgpu_props.results_buffer,
+        &wgpu_props.results_buffer2,
+        &wgpu_props.compute_pipelines[target.shader() as usize],
+        &**target,
+        result);
+    }
 
-    let egui_output        = gui::draw_ui(&overlay, &wgpu_props.egui_ctx, (screen_width, screen_height), scraping_result);
+    let egui_output        = gui::draw_ui(&overlay, &wgpu_props.egui_ctx, (screen_width, screen_height));
     let clipped_primitives = wgpu_props.egui_ctx.tessellate(egui_output.shapes, wgpu_props.egui_ctx.pixels_per_point());
 
     let mut encoder = wgpu_props.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("egui encoder") });
